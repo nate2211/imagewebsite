@@ -7,8 +7,10 @@ import {
     FileDownloadRounded,
     ImageRounded,
     LayersRounded,
+    PaletteRounded,
     SaveRounded,
     SelectAllRounded,
+    TextFieldsRounded,
 } from "@mui/icons-material";
 import {
     Box,
@@ -119,15 +121,15 @@ export default function Image() {
                                     <Typography
                                         sx={{
                                             mt: 0.9,
-                                            maxWidth: 850,
+                                            maxWidth: 900,
                                             color: "#aeb7c8",
                                             lineHeight: 1.6,
                                             fontSize: 15,
                                         }}
                                     >
-                                        Upload an image, create layers, paint with complex brushes,
-                                        select with the wand or lasso, apply filters to selections,
-                                        and export the final render.
+                                        Upload an image, paint with shaped brushes, use fill bucket,
+                                        make selections, deselect to edit the whole layer again, and
+                                        add movable typeable text boxes before exporting.
                                     </Typography>
                                 </Box>
                             </Stack>
@@ -139,12 +141,14 @@ export default function Image() {
                             flexWrap="wrap"
                             useFlexGap
                             justifyContent={{ xs: "flex-start", md: "flex-end" }}
-                            sx={{ maxWidth: { xs: "100%", md: 560 } }}
+                            sx={{ maxWidth: { xs: "100%", md: 760 } }}
                         >
                             <HeaderChip icon={<LayersRounded />} label="Layers" />
-                            <HeaderChip icon={<BrushRounded />} label="Brushes" />
+                            <HeaderChip icon={<BrushRounded />} label="Shape Brushes" />
+                            <HeaderChip icon={<PaletteRounded />} label="Fill Bucket" />
                             <HeaderChip icon={<AutoFixHighRounded />} label="Wand" />
-                            <HeaderChip icon={<SelectAllRounded />} label="Masks" />
+                            <HeaderChip icon={<SelectAllRounded />} label="Deselect / Whole Layer" />
+                            <HeaderChip icon={<TextFieldsRounded />} label="Movable Text Boxes" />
                             <HeaderChip icon={<FileDownloadRounded />} label="PNG / JPEG / WebP" />
                             <HeaderChip icon={<SaveRounded />} label="Project JSON" />
                         </Stack>
