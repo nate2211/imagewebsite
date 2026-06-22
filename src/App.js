@@ -1,25 +1,59 @@
-import logo from './logo.svg';
-import './App.css';
+import React from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { CssBaseline, ThemeProvider, createTheme } from "@mui/material";
+import Home from "./pages/home";
+import Image from "./pages/image";
 
-function App() {
+const theme = createTheme({
+  palette: {
+    mode: "dark",
+    primary: {
+      main: "#52d7ff",
+    },
+    secondary: {
+      main: "#7c5cff",
+    },
+    background: {
+      default: "#07090f",
+      paper: "#0e1118",
+    },
+  },
+  typography: {
+    fontFamily:
+        "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+    button: {
+      textTransform: "none",
+      fontWeight: 800,
+    },
+  },
+  shape: {
+    borderRadius: 14,
+  },
+  components: {
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          textTransform: "none",
+        },
+      },
+    },
+  },
+});
+
+export default function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/image" element={<Image />} />
+
+            {/* Optional fallback route */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </ThemeProvider>
   );
 }
-
-export default App;
