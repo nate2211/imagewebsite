@@ -7,11 +7,16 @@ import React, {
 import { Link as RouterLink } from "react-router-dom";
 import {
     AddRounded,
-    AutoFixHighRounded,
     BrushRounded,
+    ColorizeRounded,
+    ContentCopyRounded,
+    ContentCutRounded,
+    ContentPasteRounded,
+    CropRounded,
     DeleteRounded,
     DownloadRounded,
-    FileDownloadRounded,
+    FlipToFrontRounded,
+    FormatColorFillRounded,
     GridOnRounded,
     ImageSearchRounded,
     LayersRounded,
@@ -58,8 +63,17 @@ const clamp = (value, min = 0, max = 255) => {
 const makeCanvas = (width, height) => {
     const canvas = document.createElement("canvas");
 
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = Math.max(1, Math.round(width));
+    canvas.height = Math.max(1, Math.round(height));
+
+    return canvas;
+};
+
+const copyCanvas = (sourceCanvas) => {
+    const canvas = makeCanvas(sourceCanvas.width, sourceCanvas.height);
+    const ctx = canvas.getContext("2d");
+
+    ctx.drawImage(sourceCanvas, 0, 0);
 
     return canvas;
 };
@@ -113,6 +127,12 @@ const hexToRgb = (hex) => {
     };
 };
 
+const rgbToHex = (r, g, b) => {
+    return `#${[r, g, b]
+        .map((value) => clamp(Math.round(value), 0, 255).toString(16).padStart(2, "0"))
+        .join("")}`;
+};
+
 const rgba = (hex, alpha = 1) => {
     const { r, g, b } = hexToRgb(hex);
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
@@ -127,7 +147,7 @@ const colorDistance = (r1, g1, b1, a1, r2, g2, b2, a2) => {
     return Math.sqrt(dr * dr + dg * dg + db * db + da * da);
 };
 
-const createLayerMeta = (name, type = "paint") => ({
+const createLayerMeta = (name, type = "paint", patch = {}) => ({
     id: uid(),
     name,
     type,
@@ -139,6 +159,7 @@ const createLayerMeta = (name, type = "paint") => ({
     y: 0,
     scale: 1,
     rotation: 0,
+    ...patch,
 });
 
 const createTextBoxMeta = (patch = {}) => ({
@@ -205,6 +226,16 @@ const FONT_FAMILIES = [
     "Trebuchet MS",
 ];
 
+const SHAPE_TYPES = [
+    { value: "rect", label: "Rectangle" },
+    { value: "roundRect", label: "Rounded Rectangle" },
+    { value: "circle", label: "Circle / Ellipse" },
+    { value: "line", label: "Line" },
+    { value: "arrow", label: "Arrow" },
+    { value: "triangle", label: "Triangle" },
+    { value: "polygon", label: "Polygon" },
+];
+
 function drawStarPath(ctx, cx, cy, outerRadius, innerRadius, points = 5) {
     ctx.beginPath();
 
@@ -222,6 +253,65 @@ function drawStarPath(ctx, cx, cy, outerRadius, innerRadius, points = 5) {
     }
 
     ctx.closePath();
+}
+
+function roundedRectPath(ctx, x, y, width, height, radius) {
+    const r = Math.min(radius, Math.abs(width) / 2, Math.abs(height) / 2);
+
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+}
+
+function polygonPath(ctx, x, y, width, height, sides = 6) {
+    const count = Math.max(3, Math.round(sides));
+    const cx = x + width / 2;
+    const cy = y + height / 2;
+    const rx = Math.abs(width) / 2;
+    const ry = Math.abs(height) / 2;
+
+    ctx.beginPath();
+
+    for (let i = 0; i < count; i += 1) {
+        const angle = -Math.PI / 2 + (i * Math.PI * 2) / count;
+        const px = cx + Math.cos(angle) * rx;
+        const py = cy + Math.sin(angle) * ry;
+
+        if (i === 0) {
+            ctx.moveTo(px, py);
+        } else {
+            ctx.lineTo(px, py);
+        }
+    }
+
+    ctx.closePath();
+}
+
+function arrowPath(ctx, start, end, headSize = 28) {
+    const angle = Math.atan2(end.y - start.y, end.x - start.x);
+    const left = {
+        x: end.x - Math.cos(angle - Math.PI / 6) * headSize,
+        y: end.y - Math.sin(angle - Math.PI / 6) * headSize,
+    };
+    const right = {
+        x: end.x - Math.cos(angle + Math.PI / 6) * headSize,
+        y: end.y - Math.sin(angle + Math.PI / 6) * headSize,
+    };
+
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.moveTo(left.x, left.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.lineTo(right.x, right.y);
 }
 
 function stampBrush(ctx, x, y, options) {
@@ -556,6 +646,67 @@ function sharpenImageData(imageData) {
     return new ImageData(output, width, height);
 }
 
+function featherMask(mask, radius) {
+    if (!mask || radius <= 0) return mask;
+
+    const canvas = makeCanvas(mask.width, mask.height);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const imageData = ctx.createImageData(mask.width, mask.height);
+
+    for (let i = 0; i < mask.data.length; i += 1) {
+        const index = i * 4;
+
+        imageData.data[index] = 255;
+        imageData.data[index + 1] = 255;
+        imageData.data[index + 2] = 255;
+        imageData.data[index + 3] = mask.data[i];
+    }
+
+    const blurred = boxBlurImageData(imageData, radius);
+    const next = new Uint8ClampedArray(mask.data.length);
+
+    for (let i = 0; i < next.length; i += 1) {
+        next[i] = blurred.data[i * 4 + 3];
+    }
+
+    return {
+        width: mask.width,
+        height: mask.height,
+        data: next,
+    };
+}
+
+function getSelectionBounds(mask) {
+    if (!mask) return null;
+
+    let minX = mask.width;
+    let minY = mask.height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let y = 0; y < mask.height; y += 1) {
+        for (let x = 0; x < mask.width; x += 1) {
+            const value = mask.data[y * mask.width + x];
+
+            if (value <= 0) continue;
+
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        }
+    }
+
+    if (maxX < minX || maxY < minY) return null;
+
+    return {
+        x: minX,
+        y: minY,
+        width: maxX - minX + 1,
+        height: maxY - minY + 1,
+    };
+}
+
 function wrapTextLines(ctx, text, maxWidth) {
     const paragraphs = String(text || "").split("\n");
     const lines = [];
@@ -640,6 +791,135 @@ function drawTextBoxToContext(ctx, box) {
     ctx.restore();
 }
 
+function drawLayerOnContext(ctx, layer, canvas, width, height) {
+    if (!layer || !canvas || !layer.visible) return;
+
+    ctx.save();
+
+    ctx.globalAlpha = layer.opacity;
+    ctx.globalCompositeOperation = layer.blendMode || "source-over";
+
+    ctx.translate(width / 2 + layer.x, height / 2 + layer.y);
+    ctx.rotate((layer.rotation * Math.PI) / 180);
+    ctx.scale(layer.scale, layer.scale);
+    ctx.drawImage(canvas, -width / 2, -height / 2);
+
+    ctx.restore();
+}
+
+function createThumbnailFromCanvas(canvas, size = 82) {
+    const thumb = makeCanvas(size, size);
+    const ctx = thumb.getContext("2d");
+
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillRect(0, 0, size, size);
+
+    const scale = Math.min(size / canvas.width, size / canvas.height);
+    const drawWidth = canvas.width * scale;
+    const drawHeight = canvas.height * scale;
+    const x = (size - drawWidth) / 2;
+    const y = (size - drawHeight) / 2;
+
+    ctx.drawImage(canvas, x, y, drawWidth, drawHeight);
+
+    return thumb.toDataURL("image/png");
+}
+
+function createTextThumbnail(box, size = 82) {
+    const thumb = makeCanvas(size, size);
+    const ctx = thumb.getContext("2d");
+
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.fillStyle = rgba(box.backgroundColor || "#000000", Math.max(0.15, box.backgroundOpacity || 0.15));
+    ctx.fillRect(8, 12, size - 16, size - 24);
+
+    ctx.strokeStyle = rgba(box.borderColor || "#52d7ff", 0.85);
+    ctx.strokeRect(8, 12, size - 16, size - 24);
+
+    ctx.fillStyle = box.color || "#ffffff";
+    ctx.font = `800 12px ${box.fontFamily || "Arial"}`;
+    ctx.fillText(String(box.text || "Text").slice(0, 12), 13, 36);
+
+    return thumb.toDataURL("image/png");
+}
+
+function drawShape(ctx, start, end, options) {
+    const x = Math.min(start.x, end.x);
+    const y = Math.min(start.y, end.y);
+    const width = Math.abs(end.x - start.x);
+    const height = Math.abs(end.y - start.y);
+
+    ctx.save();
+
+    ctx.lineWidth = Math.max(1, options.strokeWidth);
+    ctx.strokeStyle = options.strokeColor;
+    ctx.fillStyle = rgba(options.fillColor, options.opacity);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    if (options.type === "line") {
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+
+        if (options.strokeEnabled) {
+            ctx.stroke();
+        }
+
+        ctx.restore();
+        return;
+    }
+
+    if (options.type === "arrow") {
+        arrowPath(ctx, start, end, Math.max(14, options.strokeWidth * 4));
+
+        if (options.strokeEnabled) {
+            ctx.stroke();
+        }
+
+        ctx.restore();
+        return;
+    }
+
+    if (options.type === "circle") {
+        ctx.beginPath();
+        ctx.ellipse(
+            x + width / 2,
+            y + height / 2,
+            width / 2,
+            height / 2,
+            0,
+            0,
+            Math.PI * 2
+        );
+    } else if (options.type === "roundRect") {
+        roundedRectPath(ctx, x, y, width, height, options.radius);
+    } else if (options.type === "triangle") {
+        ctx.beginPath();
+        ctx.moveTo(x + width / 2, y);
+        ctx.lineTo(x + width, y + height);
+        ctx.lineTo(x, y + height);
+        ctx.closePath();
+    } else if (options.type === "polygon") {
+        polygonPath(ctx, x, y, width, height, options.polygonSides);
+    } else {
+        ctx.beginPath();
+        ctx.rect(x, y, width, height);
+    }
+
+    if (options.fillEnabled) {
+        ctx.fill();
+    }
+
+    if (options.strokeEnabled) {
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
 export function SiteShell({ children }) {
     return (
         <Box
@@ -676,7 +956,7 @@ export function HeroSection() {
                         <Typography
                             component="h1"
                             sx={{
-                                maxWidth: 960,
+                                maxWidth: 980,
                                 fontSize: {
                                     xs: "2.65rem",
                                     sm: "4rem",
@@ -687,20 +967,20 @@ export function HeroSection() {
                                 fontWeight: 950,
                             }}
                         >
-                            Edit, paint, type, fill, select, filter, and export images directly in your browser.
+                            Edit, crop, paint, type, transform, fill, select, and export images in your browser.
                         </Typography>
 
                         <Typography
                             sx={{
-                                maxWidth: 760,
+                                maxWidth: 780,
                                 color: "#b9c5d6",
                                 fontSize: { xs: "1rem", md: "1.25rem" },
                                 lineHeight: 1.7,
                             }}
                         >
                             A Photoshop-style canvas editor with layers, shaped brushes, fill bucket,
-                            wand selection, lasso tools, movable text boxes, filters, project saves,
-                            and PNG, JPEG, or WebP export.
+                            gradients, magic wand, lasso tools, crop, movable text boxes, transform
+                            handles, filters, project saves, and PNG, JPEG, or WebP export.
                         </Typography>
 
                         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
@@ -745,45 +1025,45 @@ export function FeatureGridSection() {
         {
             icon: <LayersRounded />,
             title: "Layer System",
-            text: "Create layers, reorder them, hide them, adjust opacity, transform them, and blend them together.",
+            text: "Duplicate, merge, flatten, reorder, hide, blend, transform, and preview layers with thumbnails.",
         },
         {
             icon: <TextFieldsRounded />,
             title: "Movable Text Boxes",
-            text: "Place live typeable text boxes, drag them around, resize them, style them, save them, and export them.",
+            text: "Place live text boxes, drag them, resize with handles, rotate them, style them, save them, and export them.",
         },
         {
-            icon: <PaletteRounded />,
+            icon: <FormatColorFillRounded />,
             title: "Fill Bucket",
             text: "Click a connected same-color region and fill it using tolerance-aware flood fill.",
         },
         {
-            icon: <SelectAllRounded />,
-            title: "Deselect Workflow",
-            text: "Clear the active selection to instantly return filters and fills to the whole active layer.",
+            icon: <PaletteRounded />,
+            title: "Gradient Tool",
+            text: "Drag linear or radial gradients onto the full layer or inside the active selection mask.",
         },
         {
-            icon: <BrushRounded />,
-            title: "Shape Brushes",
-            text: "Paint with soft round, hard round, square, diamond, star, line, slash, calligraphy, and spray brushes.",
+            icon: <SelectAllRounded />,
+            title: "Selection Editing",
+            text: "Magic wand, lasso, rectangle select, invert, deselect, feather, copy, cut, paste, and delete selected pixels.",
+        },
+        {
+            icon: <CropRounded />,
+            title: "Crop Workflow",
+            text: "Drag crop rectangles, crop to selection, reset crop, and apply crop across all layers and text boxes.",
         },
         {
             icon: <TuneRounded />,
-            title: "Selection Filters",
+            title: "Filters",
             text: "Apply brightness, contrast, grayscale, invert, blur, and sharpen to full layers or selected areas.",
-        },
-        {
-            icon: <FileDownloadRounded />,
-            title: "Export & Save",
-            text: "Export finished images as PNG, JPEG, or WebP and save editable projects as JSON.",
         },
     ];
 
     return (
         <Box id="features" sx={{ py: { xs: 7, md: 10 } }}>
             <Container maxWidth="xl">
-                <Stack spacing={2.5} sx={{ maxWidth: 900, mb: 4 }}>
-                    <KickerChip label="Complex Canvas Features" />
+                <Stack spacing={2.5} sx={{ maxWidth: 940, mb: 4 }}>
+                    <KickerChip label="Advanced Canvas Features" />
 
                     <Typography
                         component="h2"
@@ -794,20 +1074,20 @@ export function FeatureGridSection() {
                             fontWeight: 950,
                         }}
                     >
-                        Everything needed for a real web image editor.
+                        Built like a real web image editor, not just a basic filter tool.
                     </Typography>
 
                     <Typography
                         sx={{
-                            maxWidth: 820,
+                            maxWidth: 850,
                             color: "#b9c5d6",
                             fontSize: "1.05rem",
                             lineHeight: 1.75,
                         }}
                     >
                         The app uses a true layered canvas system with editable text boxes on top
-                        of the canvas. Edits can be stacked, masked, filtered, saved, restored,
-                        and exported cleanly.
+                        of the canvas. Edits can be stacked, masked, transformed, filtered, saved,
+                        restored, and exported cleanly.
                     </Typography>
                 </Stack>
 
@@ -832,18 +1112,18 @@ export function WorkflowSection() {
         },
         {
             number: "02",
-            title: "Paint / Select",
-            text: "Use brushes, wand, lasso, rectangle select, fill bucket, and filters.",
+            title: "Select / Crop",
+            text: "Use wand, lasso, rectangle select, crop rectangles, and feathered masks.",
         },
         {
             number: "03",
-            title: "Add Text",
-            text: "Place movable typeable text boxes, drag them, resize them, and style them.",
+            title: "Edit / Transform",
+            text: "Use brushes, fills, gradients, shape tools, text boxes, and transform handles.",
         },
         {
             number: "04",
             title: "Export",
-            text: "Export the visible canvas, including all text boxes, as PNG, JPEG, or WebP.",
+            text: "Export the visible canvas, including all live text boxes, as PNG, JPEG, or WebP.",
         },
     ];
 
@@ -875,7 +1155,7 @@ export function WorkflowSection() {
                                 fontWeight: 950,
                             }}
                         >
-                            Upload. Edit. Type. Move. Export.
+                            Upload. Select. Crop. Transform. Type. Export.
                         </Typography>
 
                         <Grid container spacing={2} sx={{ pt: 1 }}>
@@ -1010,7 +1290,17 @@ function WorkflowCard({ number, title, text }) {
 }
 
 function EditorMockup() {
-    const tools = ["Move", "Brush", "Bucket", "Wand", "Deselect", "Text Box", "Shape", "Filter"];
+    const tools = [
+        "Move",
+        "Brush",
+        "Bucket",
+        "Wand",
+        "Crop",
+        "Gradient",
+        "Eyedropper",
+        "Text Box",
+        "Shape",
+    ];
 
     return (
         <Paper
@@ -1126,7 +1416,7 @@ function EditorMockup() {
                                     lineHeight: 1.1,
                                 }}
                             >
-                                Typeable
+                                Resizable
                                 <br />
                                 Text Box
                             </Box>
@@ -1145,7 +1435,7 @@ function EditorMockup() {
                                     backgroundColor: "#52d7ff",
                                 }}
                             >
-                                Move + Type
+                                Crop + Transform
                             </Box>
                         </Box>
                     </Box>
@@ -1160,7 +1450,7 @@ function EditorMockup() {
                             borderLeft: "1px solid rgba(255,255,255,0.08)",
                         }}
                     >
-                        {["Image Layer", "Paint Layer", "Text Box", "Shape Layer"].map(
+                        {["Image Layer", "Paint Layer", "Text Box", "Merged Layer"].map(
                             (layer, index) => (
                                 <Box
                                     key={layer}
@@ -1202,6 +1492,7 @@ export function CanvasImageEditor() {
     const redoRef = useRef([]);
     const strokeRef = useRef(null);
     const dragRef = useRef(null);
+    const clipboardCanvasRef = useRef(null);
 
     const [doc, setDoc] = useState({
         width: 1280,
@@ -1225,17 +1516,37 @@ export function CanvasImageEditor() {
     const [brushSpacing, setBrushSpacing] = useState(0.18);
 
     const [wandTolerance, setWandTolerance] = useState(42);
+    const [selectionFeather, setSelectionFeather] = useState(8);
     const [filterName, setFilterName] = useState("brightness");
     const [filterStrength, setFilterStrength] = useState(25);
 
     const [textValue, setTextValue] = useState("Text");
     const [fontSize, setFontSize] = useState(72);
+
     const [shapeType, setShapeType] = useState("rect");
+    const [shapeFillEnabled, setShapeFillEnabled] = useState(true);
+    const [shapeStrokeEnabled, setShapeStrokeEnabled] = useState(false);
+    const [shapeStrokeColor, setShapeStrokeColor] = useState("#52d7ff");
+    const [shapeStrokeWidth, setShapeStrokeWidth] = useState(6);
+    const [shapeRadius, setShapeRadius] = useState(26);
+    const [polygonSides, setPolygonSides] = useState(6);
+
+    const [gradientType, setGradientType] = useState("linear");
+    const [gradientStartColor, setGradientStartColor] = useState("#52d7ff");
+    const [gradientEndColor, setGradientEndColor] = useState("#ff3378");
+    const [gradientTransparent, setGradientTransparent] = useState(false);
+
+    const [eyedropperSource, setEyedropperSource] = useState("composite");
+    const [cropRect, setCropRect] = useState(null);
 
     const [selectionMask, setSelectionMask] = useState(null);
     const [showMask, setShowMask] = useState(true);
     const [zoom, setZoom] = useState(0.75);
     const [status, setStatus] = useState("Ready");
+
+    const [thumbRevision, setThumbRevision] = useState(0);
+    const [layerThumbs, setLayerThumbs] = useState({});
+    const [textThumbs, setTextThumbs] = useState({});
 
     const docRef = useRef(doc);
     const layersRef = useRef(layers);
@@ -1243,6 +1554,7 @@ export function CanvasImageEditor() {
     const activeLayerIdRef = useRef(activeLayerId);
     const activeTextBoxIdRef = useRef(activeTextBoxId);
     const selectionMaskRef = useRef(selectionMask);
+    const cropRectRef = useRef(cropRect);
 
     useEffect(() => {
         docRef.current = doc;
@@ -1267,6 +1579,35 @@ export function CanvasImageEditor() {
     useEffect(() => {
         selectionMaskRef.current = selectionMask;
     }, [selectionMask]);
+
+    useEffect(() => {
+        cropRectRef.current = cropRect;
+    }, [cropRect]);
+
+    const bumpThumbnails = useCallback(() => {
+        setThumbRevision((value) => value + 1);
+    }, []);
+
+    useEffect(() => {
+        const nextLayerThumbs = {};
+
+        for (const layer of layers) {
+            const canvas = layerCanvasesRef.current.get(layer.id);
+
+            if (canvas) {
+                nextLayerThumbs[layer.id] = createThumbnailFromCanvas(canvas);
+            }
+        }
+
+        const nextTextThumbs = {};
+
+        for (const box of textBoxes) {
+            nextTextThumbs[box.id] = createTextThumbnail(box);
+        }
+
+        setLayerThumbs(nextLayerThumbs);
+        setTextThumbs(nextTextThumbs);
+    }, [layers, textBoxes, thumbRevision]);
 
     const getActiveLayer = useCallback(() => {
         return layersRef.current.find((layer) => layer.id === activeLayerIdRef.current);
@@ -1309,8 +1650,15 @@ export function CanvasImageEditor() {
                 setActiveLayerImmediate(meta.id);
                 setActiveTextBoxImmediate(null);
             }
+
+            bumpThumbnails();
         },
-        [setActiveLayerImmediate, setActiveTextBoxImmediate, setLayersImmediate]
+        [
+            bumpThumbnails,
+            setActiveLayerImmediate,
+            setActiveTextBoxImmediate,
+            setLayersImmediate,
+        ]
     );
 
     const makeSnapshot = useCallback(() => {
@@ -1337,7 +1685,7 @@ export function CanvasImageEditor() {
 
         historyRef.current.push(snapshot);
 
-        if (historyRef.current.length > 40) {
+        if (historyRef.current.length > 50) {
             historyRef.current.shift();
         }
 
@@ -1372,9 +1720,12 @@ export function CanvasImageEditor() {
             setActiveLayerImmediate(snapshot.activeLayerId || null);
             setActiveTextBoxImmediate(snapshot.activeTextBoxId || null);
             setSelectionMask(null);
+            setCropRect(null);
             setStatus("Snapshot restored");
+            bumpThumbnails();
         },
         [
+            bumpThumbnails,
             setActiveLayerImmediate,
             setActiveTextBoxImmediate,
             setLayersImmediate,
@@ -1416,6 +1767,35 @@ export function CanvasImageEditor() {
         setStatus("Redo complete");
     }, [makeSnapshot, restoreSnapshot]);
 
+    const renderFlattenedCanvas = useCallback((mimeType = "image/png", includeText = true) => {
+        const width = docRef.current.width;
+        const height = docRef.current.height;
+        const output = makeCanvas(width, height);
+        const ctx = output.getContext("2d");
+
+        if (mimeType === "image/jpeg") {
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, width, height);
+        } else if (docRef.current.background !== "transparent") {
+            ctx.fillStyle = docRef.current.background;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        for (const layer of layersRef.current) {
+            const canvas = layerCanvasesRef.current.get(layer.id);
+
+            drawLayerOnContext(ctx, layer, canvas, width, height);
+        }
+
+        if (includeText) {
+            for (const textBox of textBoxesRef.current) {
+                drawTextBoxToContext(ctx, textBox);
+            }
+        }
+
+        return output;
+    }, []);
+
     const renderComposite = useCallback(() => {
         const displayCanvas = displayCanvasRef.current;
         const overlayCanvas = overlayCanvasRef.current;
@@ -1447,32 +1827,16 @@ export function CanvasImageEditor() {
         }
 
         for (const layer of layersRef.current) {
-            if (!layer.visible) continue;
-
             const layerCanvas = layerCanvasesRef.current.get(layer.id);
-            if (!layerCanvas) continue;
 
-            ctx.save();
-
-            ctx.globalAlpha = layer.opacity;
-            ctx.globalCompositeOperation = layer.blendMode || "source-over";
-
-            ctx.translate(width / 2 + layer.x, height / 2 + layer.y);
-            ctx.rotate((layer.rotation * Math.PI) / 180);
-            ctx.scale(layer.scale, layer.scale);
-            ctx.drawImage(layerCanvas, -width / 2, -height / 2);
-
-            ctx.restore();
+            drawLayerOnContext(ctx, layer, layerCanvas, width, height);
         }
 
         if (strokeRef.current?.canvas) {
             ctx.save();
 
-            if (strokeRef.current.mode === "eraser") {
-                ctx.globalCompositeOperation = "destination-out";
-            } else {
-                ctx.globalCompositeOperation = "source-over";
-            }
+            ctx.globalCompositeOperation =
+                strokeRef.current.mode === "eraser" ? "destination-out" : "source-over";
 
             ctx.drawImage(strokeRef.current.canvas, 0, 0);
             ctx.restore();
@@ -1492,16 +1856,30 @@ export function CanvasImageEditor() {
                 maskImage.data[index] = 0;
                 maskImage.data[index + 1] = 180;
                 maskImage.data[index + 2] = 255;
-                maskImage.data[index + 3] = Math.min(95, alpha * 0.45);
+                maskImage.data[index + 3] = Math.min(110, alpha * 0.45);
             }
 
             overlayCtx.putImageData(maskImage, 0, 0);
+        }
+
+        if (cropRectRef.current) {
+            const rect = cropRectRef.current;
+
+            overlayCtx.save();
+            overlayCtx.fillStyle = "rgba(0,0,0,0.38)";
+            overlayCtx.fillRect(0, 0, width, height);
+            overlayCtx.clearRect(rect.x, rect.y, rect.width, rect.height);
+            overlayCtx.strokeStyle = "#52d7ff";
+            overlayCtx.lineWidth = 3;
+            overlayCtx.setLineDash([10, 6]);
+            overlayCtx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+            overlayCtx.restore();
         }
     }, [showMask]);
 
     useEffect(() => {
         renderComposite();
-    }, [doc, layers, selectionMask, showMask, zoom, renderComposite]);
+    }, [doc, layers, selectionMask, showMask, cropRect, zoom, renderComposite]);
 
     const addBlankLayer = useCallback(
         (name = "Paint Layer") => {
@@ -1541,6 +1919,7 @@ export function CanvasImageEditor() {
     const handleImageUpload = useCallback(
         async (event) => {
             const file = event.target.files?.[0];
+
             if (!file) return;
 
             try {
@@ -1589,7 +1968,9 @@ export function CanvasImageEditor() {
 
                 addLayerImmediate(meta, canvas, true);
                 setSelectionMask(null);
+                setCropRect(null);
                 setStatus(`Loaded ${file.name}`);
+                bumpThumbnails();
             } catch (error) {
                 console.error(error);
                 setStatus("Could not load image");
@@ -1599,6 +1980,7 @@ export function CanvasImageEditor() {
         },
         [
             addLayerImmediate,
+            bumpThumbnails,
             pushHistory,
             setActiveLayerImmediate,
             setActiveTextBoxImmediate,
@@ -1644,9 +2026,11 @@ export function CanvasImageEditor() {
             setActiveTextBoxImmediate(textBox.id);
             setActiveLayerImmediate(null);
             setTool("textBox");
-            setStatus("Text box added. Type inside it or drag its top handle to move it.");
+            setStatus("Text box added. Drag, resize, rotate, or type inside it.");
+            bumpThumbnails();
         },
         [
+            bumpThumbnails,
             color,
             fontSize,
             pushHistory,
@@ -1668,8 +2052,9 @@ export function CanvasImageEditor() {
             );
 
             setTextBoxesImmediate(nextTextBoxes);
+            bumpThumbnails();
         },
-        [setTextBoxesImmediate]
+        [bumpThumbnails, setTextBoxesImmediate]
     );
 
     const deleteActiveTextBox = useCallback(() => {
@@ -1684,7 +2069,8 @@ export function CanvasImageEditor() {
         setTextBoxesImmediate(nextTextBoxes);
         setActiveTextBoxImmediate(null);
         setStatus("Text box deleted");
-    }, [pushHistory, setActiveTextBoxImmediate, setTextBoxesImmediate]);
+        bumpThumbnails();
+    }, [bumpThumbnails, pushHistory, setActiveTextBoxImmediate, setTextBoxesImmediate]);
 
     const duplicateActiveTextBox = useCallback(() => {
         const activeId = activeTextBoxIdRef.current;
@@ -1705,7 +2091,8 @@ export function CanvasImageEditor() {
         setTextBoxesImmediate([...textBoxesRef.current, copy]);
         setActiveTextBoxImmediate(copy.id);
         setStatus("Text box duplicated");
-    }, [pushHistory, setActiveTextBoxImmediate, setTextBoxesImmediate]);
+        bumpThumbnails();
+    }, [bumpThumbnails, pushHistory, setActiveTextBoxImmediate, setTextBoxesImmediate]);
 
     const createMagicWandSelection = useCallback(
         (x, y) => {
@@ -1790,6 +2177,7 @@ export function CanvasImageEditor() {
 
             ctx.putImageData(imageData, 0, 0);
             renderComposite();
+            bumpThumbnails();
 
             if (selectionMaskRef.current) {
                 setStatus(
@@ -1799,7 +2187,15 @@ export function CanvasImageEditor() {
                 setStatus(`Fill bucket painted ${mask.count.toLocaleString()} connected pixels`);
             }
         },
-        [brushOpacity, color, ensureEditableLayer, pushHistory, renderComposite, wandTolerance]
+        [
+            brushOpacity,
+            bumpThumbnails,
+            color,
+            ensureEditableLayer,
+            pushHistory,
+            renderComposite,
+            wandTolerance,
+        ]
     );
 
     const fillSelectionInActiveLayer = useCallback(() => {
@@ -1841,13 +2237,21 @@ export function CanvasImageEditor() {
 
         ctx.putImageData(imageData, 0, 0);
         renderComposite();
+        bumpThumbnails();
 
         if (mask) {
             setStatus(`Filled ${count.toLocaleString()} selected pixels`);
         } else {
             setStatus("Filled the whole active layer");
         }
-    }, [brushOpacity, color, ensureEditableLayer, pushHistory, renderComposite]);
+    }, [
+        brushOpacity,
+        bumpThumbnails,
+        color,
+        ensureEditableLayer,
+        pushHistory,
+        renderComposite,
+    ]);
 
     const createRectangleSelection = useCallback((start, end) => {
         const width = docRef.current.width;
@@ -1948,6 +2352,20 @@ export function CanvasImageEditor() {
         }
     }, [renderComposite]);
 
+    const featherActiveSelection = useCallback(() => {
+        if (!selectionMaskRef.current) {
+            setStatus("No selection to feather");
+            return;
+        }
+
+        pushHistory();
+
+        const next = featherMask(selectionMaskRef.current, selectionFeather);
+
+        setSelectionMask(next);
+        setStatus(`Selection feathered by ${selectionFeather}px`);
+    }, [pushHistory, selectionFeather]);
+
     const commitTempCanvasToActiveLayer = useCallback(
         (tempCanvas, mode = "paint") => {
             const activeCanvas = getActiveCanvas();
@@ -1969,8 +2387,9 @@ export function CanvasImageEditor() {
             ctx.restore();
 
             renderComposite();
+            bumpThumbnails();
         },
-        [getActiveCanvas, getActiveLayer, renderComposite]
+        [bumpThumbnails, getActiveCanvas, getActiveLayer, renderComposite]
     );
 
     const drawShapePreview = useCallback(
@@ -1980,35 +2399,33 @@ export function CanvasImageEditor() {
             const overlay = overlayCanvasRef.current;
             const ctx = overlay.getContext("2d");
 
-            const x = Math.min(start.x, end.x);
-            const y = Math.min(start.y, end.y);
-            const width = Math.abs(end.x - start.x);
-            const height = Math.abs(end.y - start.y);
-
             ctx.save();
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
             ctx.setLineDash([8, 4]);
 
-            if (shapeType === "circle") {
-                ctx.beginPath();
-                ctx.ellipse(
-                    x + width / 2,
-                    y + height / 2,
-                    width / 2,
-                    height / 2,
-                    0,
-                    0,
-                    Math.PI * 2
-                );
-                ctx.stroke();
-            } else {
-                ctx.strokeRect(x, y, width, height);
-            }
+            drawShape(ctx, start, end, {
+                type: shapeType,
+                fillEnabled: false,
+                strokeEnabled: true,
+                fillColor: color,
+                strokeColor: shapeStrokeColor,
+                strokeWidth: Math.max(2, shapeStrokeWidth),
+                opacity: brushOpacity,
+                radius: shapeRadius,
+                polygonSides,
+            });
 
             ctx.restore();
         },
-        [color, renderComposite, shapeType]
+        [
+            brushOpacity,
+            color,
+            polygonSides,
+            renderComposite,
+            shapeRadius,
+            shapeStrokeColor,
+            shapeStrokeWidth,
+            shapeType,
+        ]
     );
 
     const drawSelectionPreview = useCallback(
@@ -2059,6 +2476,44 @@ export function CanvasImageEditor() {
         [renderComposite]
     );
 
+    const drawGradientPreview = useCallback(
+        (start, end) => {
+            renderComposite();
+
+            const overlay = overlayCanvasRef.current;
+            const ctx = overlay.getContext("2d");
+            const width = docRef.current.width;
+            const height = docRef.current.height;
+
+            let gradient;
+
+            if (gradientType === "radial") {
+                const radius = Math.max(1, Math.hypot(end.x - start.x, end.y - start.y));
+                gradient = ctx.createRadialGradient(start.x, start.y, 0, start.x, start.y, radius);
+            } else {
+                gradient = ctx.createLinearGradient(start.x, start.y, end.x, end.y);
+            }
+
+            gradient.addColorStop(0, rgba(gradientStartColor, 0.45));
+            gradient.addColorStop(
+                1,
+                gradientTransparent ? rgba(gradientEndColor, 0) : rgba(gradientEndColor, 0.45)
+            );
+
+            ctx.save();
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+            ctx.restore();
+        },
+        [
+            gradientEndColor,
+            gradientStartColor,
+            gradientTransparent,
+            gradientType,
+            renderComposite,
+        ]
+    );
+
     const drawTextAtPoint = useCallback(
         (point) => {
             ensureEditableLayer();
@@ -2096,31 +2551,17 @@ export function CanvasImageEditor() {
             const temp = makeCanvas(docRef.current.width, docRef.current.height);
             const ctx = temp.getContext("2d");
 
-            const x = Math.min(start.x, end.x);
-            const y = Math.min(start.y, end.y);
-            const width = Math.abs(end.x - start.x);
-            const height = Math.abs(end.y - start.y);
-
-            ctx.save();
-            ctx.fillStyle = rgba(color, brushOpacity);
-
-            if (shapeType === "circle") {
-                ctx.beginPath();
-                ctx.ellipse(
-                    x + width / 2,
-                    y + height / 2,
-                    width / 2,
-                    height / 2,
-                    0,
-                    0,
-                    Math.PI * 2
-                );
-                ctx.fill();
-            } else {
-                ctx.fillRect(x, y, width, height);
-            }
-
-            ctx.restore();
+            drawShape(ctx, start, end, {
+                type: shapeType,
+                fillEnabled: shapeFillEnabled,
+                strokeEnabled: shapeStrokeEnabled,
+                fillColor: color,
+                strokeColor: shapeStrokeColor,
+                strokeWidth: shapeStrokeWidth,
+                opacity: brushOpacity,
+                radius: shapeRadius,
+                polygonSides,
+            });
 
             applyMaskToCanvas(temp, selectionMaskRef.current);
             commitTempCanvasToActiveLayer(temp, "paint");
@@ -2132,9 +2573,425 @@ export function CanvasImageEditor() {
             color,
             commitTempCanvasToActiveLayer,
             ensureEditableLayer,
+            polygonSides,
+            shapeFillEnabled,
+            shapeRadius,
+            shapeStrokeColor,
+            shapeStrokeEnabled,
+            shapeStrokeWidth,
             shapeType,
         ]
     );
+
+    const drawGradientToLayer = useCallback(
+        (start, end) => {
+            ensureEditableLayer();
+            pushHistory();
+
+            const width = docRef.current.width;
+            const height = docRef.current.height;
+            const temp = makeCanvas(width, height);
+            const ctx = temp.getContext("2d");
+
+            let gradient;
+
+            if (gradientType === "radial") {
+                const radius = Math.max(1, Math.hypot(end.x - start.x, end.y - start.y));
+                gradient = ctx.createRadialGradient(start.x, start.y, 0, start.x, start.y, radius);
+            } else {
+                gradient = ctx.createLinearGradient(start.x, start.y, end.x, end.y);
+            }
+
+            gradient.addColorStop(0, rgba(gradientStartColor, brushOpacity));
+            gradient.addColorStop(
+                1,
+                gradientTransparent ? rgba(gradientEndColor, 0) : rgba(gradientEndColor, brushOpacity)
+            );
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+
+            applyMaskToCanvas(temp, selectionMaskRef.current);
+            commitTempCanvasToActiveLayer(temp, "paint");
+
+            setStatus(selectionMaskRef.current ? "Gradient added inside selection" : "Gradient added");
+        },
+        [
+            brushOpacity,
+            commitTempCanvasToActiveLayer,
+            ensureEditableLayer,
+            gradientEndColor,
+            gradientStartColor,
+            gradientTransparent,
+            gradientType,
+            pushHistory,
+        ]
+    );
+
+    const sampleColorAtPoint = useCallback(
+        (point) => {
+            let sampleCanvas;
+
+            if (eyedropperSource === "active") {
+                sampleCanvas = getActiveCanvas();
+
+                if (!sampleCanvas) {
+                    setStatus("No active layer to sample");
+                    return;
+                }
+            } else {
+                sampleCanvas = renderFlattenedCanvas("image/png", true);
+            }
+
+            const ctx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+            const pixel = ctx.getImageData(Math.floor(point.x), Math.floor(point.y), 1, 1).data;
+            const nextColor = rgbToHex(pixel[0], pixel[1], pixel[2]);
+
+            setColor(nextColor);
+            setGradientStartColor(nextColor);
+            setShapeStrokeColor(nextColor);
+            setStatus(`Sampled ${nextColor}`);
+        },
+        [eyedropperSource, getActiveCanvas, renderFlattenedCanvas]
+    );
+
+    const cropToRect = useCallback(
+        (rect) => {
+            if (!rect || rect.width < 2 || rect.height < 2) {
+                setStatus("No valid crop rectangle");
+                return;
+            }
+
+            pushHistory();
+
+            const nextWidth = Math.round(rect.width);
+            const nextHeight = Math.round(rect.height);
+            const nextMap = new Map();
+
+            for (const layer of layersRef.current) {
+                const oldCanvas = layerCanvasesRef.current.get(layer.id);
+
+                if (!oldCanvas) continue;
+
+                const nextCanvas = makeCanvas(nextWidth, nextHeight);
+                const ctx = nextCanvas.getContext("2d");
+
+                ctx.drawImage(
+                    oldCanvas,
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    0,
+                    0,
+                    nextWidth,
+                    nextHeight
+                );
+
+                nextMap.set(layer.id, nextCanvas);
+            }
+
+            layerCanvasesRef.current = nextMap;
+
+            const nextDoc = {
+                ...docRef.current,
+                width: nextWidth,
+                height: nextHeight,
+            };
+
+            docRef.current = nextDoc;
+
+            setDoc(nextDoc);
+            setTextBoxesImmediate(
+                textBoxesRef.current.map((box) => ({
+                    ...box,
+                    x: box.x - rect.x,
+                    y: box.y - rect.y,
+                }))
+            );
+            setSelectionMask(null);
+            setCropRect(null);
+            setStatus(`Cropped to ${nextWidth}×${nextHeight}`);
+            bumpThumbnails();
+        },
+        [bumpThumbnails, pushHistory, setTextBoxesImmediate]
+    );
+
+    const cropToSelection = useCallback(() => {
+        const bounds = getSelectionBounds(selectionMaskRef.current);
+
+        if (!bounds) {
+            setStatus("No selection to crop to");
+            return;
+        }
+
+        cropToRect(bounds);
+    }, [cropToRect]);
+
+    const copyOrCutSelection = useCallback(
+        (cut = false) => {
+            const canvas = getActiveCanvas();
+            const layer = getActiveLayer();
+
+            if (!canvas || !layer) {
+                setStatus("No active raster layer to copy");
+                return;
+            }
+
+            if (cut && layer.locked) {
+                setStatus("Active layer is locked");
+                return;
+            }
+
+            const mask = selectionMaskRef.current;
+            const output = makeCanvas(docRef.current.width, docRef.current.height);
+            const outCtx = output.getContext("2d", { willReadFrequently: true });
+            const srcCtx = canvas.getContext("2d", { willReadFrequently: true });
+            const src = srcCtx.getImageData(0, 0, canvas.width, canvas.height);
+            const out = outCtx.createImageData(canvas.width, canvas.height);
+
+            let count = 0;
+
+            for (let i = 0; i < src.data.length; i += 4) {
+                const pixelIndex = i / 4;
+                const selected = mask ? mask.data[pixelIndex] / 255 : 1;
+
+                if (selected <= 0) continue;
+
+                out.data[i] = src.data[i];
+                out.data[i + 1] = src.data[i + 1];
+                out.data[i + 2] = src.data[i + 2];
+                out.data[i + 3] = src.data[i + 3] * selected;
+
+                count += 1;
+            }
+
+            outCtx.putImageData(out, 0, 0);
+            clipboardCanvasRef.current = output;
+
+            if (cut) {
+                pushHistory();
+
+                for (let i = 0; i < src.data.length; i += 4) {
+                    const pixelIndex = i / 4;
+                    const selected = mask ? mask.data[pixelIndex] / 255 : 1;
+
+                    if (selected <= 0) continue;
+
+                    src.data[i + 3] = src.data[i + 3] * (1 - selected);
+                }
+
+                srcCtx.putImageData(src, 0, 0);
+                renderComposite();
+                bumpThumbnails();
+            }
+
+            setStatus(`${cut ? "Cut" : "Copied"} ${count.toLocaleString()} pixels`);
+        },
+        [
+            bumpThumbnails,
+            getActiveCanvas,
+            getActiveLayer,
+            pushHistory,
+            renderComposite,
+        ]
+    );
+
+    const pasteClipboardAsLayer = useCallback(() => {
+        if (!clipboardCanvasRef.current) {
+            setStatus("Clipboard is empty");
+            return;
+        }
+
+        pushHistory();
+
+        const meta = createLayerMeta("Pasted Selection", "image", {
+            x: 18,
+            y: 18,
+        });
+        const canvas = copyCanvas(clipboardCanvasRef.current);
+
+        addLayerImmediate(meta, canvas, true);
+        setStatus("Pasted selection as a new layer");
+        bumpThumbnails();
+    }, [addLayerImmediate, bumpThumbnails, pushHistory]);
+
+    const clearSelectedPixels = useCallback(() => {
+        const canvas = getActiveCanvas();
+        const layer = getActiveLayer();
+
+        if (!canvas || !layer || layer.locked) {
+            setStatus("No editable active layer");
+            return;
+        }
+
+        pushHistory();
+
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const mask = selectionMaskRef.current;
+
+        if (!mask) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            setStatus("Cleared whole active layer");
+        } else {
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            let count = 0;
+
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                const selected = mask.data[i / 4] / 255;
+
+                if (selected <= 0) continue;
+
+                imageData.data[i + 3] = imageData.data[i + 3] * (1 - selected);
+                count += 1;
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            setStatus(`Cleared ${count.toLocaleString()} selected pixels`);
+        }
+
+        renderComposite();
+        bumpThumbnails();
+    }, [
+        bumpThumbnails,
+        getActiveCanvas,
+        getActiveLayer,
+        pushHistory,
+        renderComposite,
+    ]);
+
+    const duplicateActiveLayer = useCallback(() => {
+        const layer = getActiveLayer();
+        const canvas = getActiveCanvas();
+
+        if (!layer || !canvas) {
+            setStatus("No active layer to duplicate");
+            return;
+        }
+
+        pushHistory();
+
+        const copyMeta = {
+            ...layer,
+            id: uid(),
+            name: `${layer.name} Copy`,
+            x: layer.x + 24,
+            y: layer.y + 24,
+        };
+
+        addLayerImmediate(copyMeta, copyCanvas(canvas), true);
+        setStatus("Layer duplicated");
+        bumpThumbnails();
+    }, [
+        addLayerImmediate,
+        bumpThumbnails,
+        getActiveCanvas,
+        getActiveLayer,
+        pushHistory,
+    ]);
+
+    const mergeDown = useCallback(() => {
+        const activeId = activeLayerIdRef.current;
+        const index = layersRef.current.findIndex((layer) => layer.id === activeId);
+
+        if (index <= 0) {
+            setStatus("No lower layer to merge into");
+            return;
+        }
+
+        pushHistory();
+
+        const lower = layersRef.current[index - 1];
+        const active = layersRef.current[index];
+        const width = docRef.current.width;
+        const height = docRef.current.height;
+        const mergedCanvas = makeCanvas(width, height);
+        const ctx = mergedCanvas.getContext("2d");
+
+        drawLayerOnContext(ctx, lower, layerCanvasesRef.current.get(lower.id), width, height);
+        drawLayerOnContext(ctx, active, layerCanvasesRef.current.get(active.id), width, height);
+
+        const mergedLayer = createLayerMeta(`${lower.name} + ${active.name}`, "merged", {
+            id: lower.id,
+        });
+
+        layerCanvasesRef.current.set(lower.id, mergedCanvas);
+        layerCanvasesRef.current.delete(active.id);
+
+        const nextLayers = layersRef.current
+            .filter((layer) => layer.id !== active.id)
+            .map((layer) => (layer.id === lower.id ? mergedLayer : layer));
+
+        setLayersImmediate(nextLayers);
+        setActiveLayerImmediate(lower.id);
+        setStatus("Merged active layer down");
+        bumpThumbnails();
+    }, [bumpThumbnails, pushHistory, setActiveLayerImmediate, setLayersImmediate]);
+
+    const mergeVisible = useCallback(() => {
+        const visibleLayers = layersRef.current.filter((layer) => layer.visible);
+
+        if (visibleLayers.length === 0) {
+            setStatus("No visible layers to merge");
+            return;
+        }
+
+        pushHistory();
+
+        const width = docRef.current.width;
+        const height = docRef.current.height;
+        const mergedCanvas = makeCanvas(width, height);
+        const ctx = mergedCanvas.getContext("2d");
+
+        for (const layer of layersRef.current) {
+            if (!layer.visible) continue;
+
+            const canvas = layerCanvasesRef.current.get(layer.id);
+
+            drawLayerOnContext(ctx, layer, canvas, width, height);
+        }
+
+        for (const layer of visibleLayers) {
+            layerCanvasesRef.current.delete(layer.id);
+        }
+
+        const mergedLayer = createLayerMeta("Merged Visible", "merged");
+
+        layerCanvasesRef.current.set(mergedLayer.id, mergedCanvas);
+
+        const hiddenLayers = layersRef.current.filter((layer) => !layer.visible);
+        const nextLayers = [...hiddenLayers, mergedLayer];
+
+        setLayersImmediate(nextLayers);
+        setActiveLayerImmediate(mergedLayer.id);
+        setStatus("Merged visible layers");
+        bumpThumbnails();
+    }, [bumpThumbnails, pushHistory, setActiveLayerImmediate, setLayersImmediate]);
+
+    const flattenImage = useCallback(() => {
+        pushHistory();
+
+        const canvas = renderFlattenedCanvas("image/png", true);
+        const layer = createLayerMeta("Flattened Image", "merged");
+
+        layerCanvasesRef.current = new Map([[layer.id, canvas]]);
+
+        setLayersImmediate([layer]);
+        setTextBoxesImmediate([]);
+        setActiveLayerImmediate(layer.id);
+        setActiveTextBoxImmediate(null);
+        setSelectionMask(null);
+        setStatus("Flattened image into one raster layer");
+        bumpThumbnails();
+    }, [
+        bumpThumbnails,
+        pushHistory,
+        renderFlattenedCanvas,
+        setActiveLayerImmediate,
+        setActiveTextBoxImmediate,
+        setLayersImmediate,
+        setTextBoxesImmediate,
+    ]);
 
     const handlePointerDown = useCallback(
         (event) => {
@@ -2157,6 +3014,11 @@ export function CanvasImageEditor() {
                 return;
             }
 
+            if (tool === "eyedropper") {
+                sampleColorAtPoint(point);
+                return;
+            }
+
             if (tool === "text") {
                 drawTextAtPoint(point);
                 return;
@@ -2170,6 +3032,23 @@ export function CanvasImageEditor() {
                 };
 
                 drawSelectionPreview(point, point);
+                return;
+            }
+
+            if (tool === "crop") {
+                dragRef.current = {
+                    mode: "crop",
+                    start: point,
+                    current: point,
+                };
+
+                setCropRect({
+                    x: point.x,
+                    y: point.y,
+                    width: 1,
+                    height: 1,
+                });
+
                 return;
             }
 
@@ -2215,6 +3094,19 @@ export function CanvasImageEditor() {
                 return;
             }
 
+            if (tool === "gradient") {
+                ensureEditableLayer();
+
+                dragRef.current = {
+                    mode: "gradient",
+                    start: point,
+                    current: point,
+                };
+
+                drawGradientPreview(point, point);
+                return;
+            }
+
             if (tool === "brush" || tool === "eraser") {
                 ensureEditableLayer();
                 pushHistory();
@@ -2252,6 +3144,7 @@ export function CanvasImageEditor() {
             brushSpacing,
             color,
             createMagicWandSelection,
+            drawGradientPreview,
             drawLassoPreview,
             drawSelectionPreview,
             drawShapePreview,
@@ -2262,6 +3155,7 @@ export function CanvasImageEditor() {
             getCanvasPoint,
             pushHistory,
             renderComposite,
+            sampleColorAtPoint,
             tool,
         ]
     );
@@ -2318,9 +3212,33 @@ export function CanvasImageEditor() {
                 return;
             }
 
+            if (drag.mode === "gradient") {
+                drag.current = point;
+                drawGradientPreview(drag.start, point);
+                return;
+            }
+
             if (drag.mode === "rectSelect") {
                 drag.current = point;
                 drawSelectionPreview(drag.start, point);
+                return;
+            }
+
+            if (drag.mode === "crop") {
+                drag.current = point;
+
+                const x = Math.min(drag.start.x, point.x);
+                const y = Math.min(drag.start.y, point.y);
+                const width = Math.abs(point.x - drag.start.x);
+                const height = Math.abs(point.y - drag.start.y);
+
+                setCropRect({
+                    x,
+                    y,
+                    width,
+                    height,
+                });
+
                 return;
             }
 
@@ -2337,6 +3255,7 @@ export function CanvasImageEditor() {
             brushSize,
             brushSpacing,
             color,
+            drawGradientPreview,
             drawLassoPreview,
             drawSelectionPreview,
             drawShapePreview,
@@ -2370,6 +3289,7 @@ export function CanvasImageEditor() {
             }
 
             renderComposite();
+            bumpThumbnails();
 
             return;
         }
@@ -2386,8 +3306,28 @@ export function CanvasImageEditor() {
             return;
         }
 
+        if (drag.mode === "gradient") {
+            drawGradientToLayer(drag.start, drag.current);
+            renderComposite();
+            return;
+        }
+
         if (drag.mode === "rectSelect") {
             createRectangleSelection(drag.start, drag.current);
+            renderComposite();
+            return;
+        }
+
+        if (drag.mode === "crop") {
+            const rect = cropRectRef.current;
+
+            if (!rect || rect.width < 3 || rect.height < 3) {
+                setCropRect(null);
+                setStatus("Crop cancelled");
+            } else {
+                setStatus("Crop rectangle ready. Click Apply Crop.");
+            }
+
             renderComposite();
             return;
         }
@@ -2400,11 +3340,14 @@ export function CanvasImageEditor() {
 
         if (drag.mode === "move") {
             setStatus("Layer moved");
+            bumpThumbnails();
         }
     }, [
+        bumpThumbnails,
         commitTempCanvasToActiveLayer,
         createLassoSelection,
         createRectangleSelection,
+        drawGradientToLayer,
         drawShapeToLayer,
         renderComposite,
     ]);
@@ -2503,9 +3446,11 @@ export function CanvasImageEditor() {
 
         ctx.putImageData(result, 0, 0);
         renderComposite();
+        bumpThumbnails();
 
         setStatus(`Applied ${filterName} to ${mask ? "selection" : "whole active layer"}`);
     }, [
+        bumpThumbnails,
         filterName,
         filterStrength,
         getActiveCanvas,
@@ -2534,6 +3479,22 @@ export function CanvasImageEditor() {
         [setLayersImmediate]
     );
 
+    const updateLayerById = useCallback(
+        (id, patch) => {
+            const nextLayers = layersRef.current.map((layer) =>
+                layer.id === id
+                    ? {
+                        ...layer,
+                        ...patch,
+                    }
+                    : layer
+            );
+
+            setLayersImmediate(nextLayers);
+        },
+        [setLayersImmediate]
+    );
+
     const deleteActiveLayer = useCallback(() => {
         const activeId = activeLayerIdRef.current;
 
@@ -2549,7 +3510,8 @@ export function CanvasImageEditor() {
         setLayersImmediate(nextLayers);
         setActiveLayerImmediate(nextActiveId);
         setStatus("Layer deleted");
-    }, [pushHistory, setActiveLayerImmediate, setLayersImmediate]);
+        bumpThumbnails();
+    }, [bumpThumbnails, pushHistory, setActiveLayerImmediate, setLayersImmediate]);
 
     const moveLayer = useCallback(
         (id, direction) => {
@@ -2602,53 +3564,14 @@ export function CanvasImageEditor() {
             );
 
             setTextBoxesImmediate(nextTextBoxes);
+            bumpThumbnails();
         },
-        [setTextBoxesImmediate]
+        [bumpThumbnails, setTextBoxesImmediate]
     );
-
-    const renderFlattenedCanvas = useCallback((mimeType = "image/png") => {
-        const width = docRef.current.width;
-        const height = docRef.current.height;
-        const output = makeCanvas(width, height);
-        const ctx = output.getContext("2d");
-
-        if (mimeType === "image/jpeg") {
-            ctx.fillStyle = "#ffffff";
-            ctx.fillRect(0, 0, width, height);
-        } else if (docRef.current.background !== "transparent") {
-            ctx.fillStyle = docRef.current.background;
-            ctx.fillRect(0, 0, width, height);
-        }
-
-        for (const layer of layersRef.current) {
-            if (!layer.visible) continue;
-
-            const canvas = layerCanvasesRef.current.get(layer.id);
-            if (!canvas) continue;
-
-            ctx.save();
-
-            ctx.globalAlpha = layer.opacity;
-            ctx.globalCompositeOperation = layer.blendMode || "source-over";
-
-            ctx.translate(width / 2 + layer.x, height / 2 + layer.y);
-            ctx.rotate((layer.rotation * Math.PI) / 180);
-            ctx.scale(layer.scale, layer.scale);
-            ctx.drawImage(canvas, -width / 2, -height / 2);
-
-            ctx.restore();
-        }
-
-        for (const textBox of textBoxesRef.current) {
-            drawTextBoxToContext(ctx, textBox);
-        }
-
-        return output;
-    }, []);
 
     const exportImage = useCallback(
         (mimeType) => {
-            const output = renderFlattenedCanvas(mimeType);
+            const output = renderFlattenedCanvas(mimeType, true);
             const extension =
                 mimeType === "image/jpeg" ? "jpg" : mimeType === "image/webp" ? "webp" : "png";
 
@@ -2674,7 +3597,7 @@ export function CanvasImageEditor() {
 
         const project = {
             app: "CanvasImageStudio",
-            version: 3,
+            version: 4,
             savedAt: new Date().toISOString(),
             ...snapshot,
         };
@@ -2698,6 +3621,7 @@ export function CanvasImageEditor() {
                 const project = JSON.parse(text);
 
                 pushHistory();
+
                 await restoreSnapshot({
                     ...project,
                     textBoxes: project.textBoxes || [],
@@ -2726,8 +3650,8 @@ export function CanvasImageEditor() {
                 minHeight: 0,
                 display: "grid",
                 gridTemplateColumns: {
-                    xs: "260px minmax(620px, 1fr) 300px",
-                    lg: "310px minmax(760px, 1fr) 360px",
+                    xs: "280px minmax(720px, 1fr) 330px",
+                    lg: "330px minmax(840px, 1fr) 390px",
                 },
                 background: "#090b10",
                 color: "#f5f7fb",
@@ -2757,9 +3681,16 @@ export function CanvasImageEditor() {
                 setBrushSpacing={setBrushSpacing}
                 wandTolerance={wandTolerance}
                 setWandTolerance={setWandTolerance}
+                selectionFeather={selectionFeather}
+                setSelectionFeather={setSelectionFeather}
+                featherActiveSelection={featherActiveSelection}
                 invertSelection={invertSelection}
                 clearSelection={clearSelection}
                 fillSelectionInActiveLayer={fillSelectionInActiveLayer}
+                copySelection={() => copyOrCutSelection(false)}
+                cutSelection={() => copyOrCutSelection(true)}
+                pasteClipboardAsLayer={pasteClipboardAsLayer}
+                clearSelectedPixels={clearSelectedPixels}
                 hasSelection={hasSelection}
                 showMask={showMask}
                 setShowMask={setShowMask}
@@ -2774,6 +3705,35 @@ export function CanvasImageEditor() {
                 setFontSize={setFontSize}
                 shapeType={shapeType}
                 setShapeType={setShapeType}
+                shapeFillEnabled={shapeFillEnabled}
+                setShapeFillEnabled={setShapeFillEnabled}
+                shapeStrokeEnabled={shapeStrokeEnabled}
+                setShapeStrokeEnabled={setShapeStrokeEnabled}
+                shapeStrokeColor={shapeStrokeColor}
+                setShapeStrokeColor={setShapeStrokeColor}
+                shapeStrokeWidth={shapeStrokeWidth}
+                setShapeStrokeWidth={setShapeStrokeWidth}
+                shapeRadius={shapeRadius}
+                setShapeRadius={setShapeRadius}
+                polygonSides={polygonSides}
+                setPolygonSides={setPolygonSides}
+                gradientType={gradientType}
+                setGradientType={setGradientType}
+                gradientStartColor={gradientStartColor}
+                setGradientStartColor={setGradientStartColor}
+                gradientEndColor={gradientEndColor}
+                setGradientEndColor={setGradientEndColor}
+                gradientTransparent={gradientTransparent}
+                setGradientTransparent={setGradientTransparent}
+                eyedropperSource={eyedropperSource}
+                setEyedropperSource={setEyedropperSource}
+                cropRect={cropRect}
+                cropToSelection={cropToSelection}
+                applyCropRect={() => cropToRect(cropRect)}
+                clearCropRect={() => {
+                    setCropRect(null);
+                    setStatus("Crop rectangle cleared");
+                }}
             />
 
             <EditorCanvasCenter
@@ -2798,18 +3758,30 @@ export function CanvasImageEditor() {
                 setActiveTextBoxId={setActiveTextBoxImmediate}
                 updateTextBox={updateTextBox}
                 pushHistory={pushHistory}
+                activeLayer={activeLayer}
+                activeLayerId={activeLayerId}
+                setActiveLayerId={setActiveLayerImmediate}
+                updateLayerById={updateLayerById}
+                setActiveTextBoxImmediate={setActiveTextBoxImmediate}
+                bumpThumbnails={bumpThumbnails}
             />
 
             <EditorRightPanel
                 activeLayer={activeLayer}
                 activeLayerId={activeLayerId}
                 layers={layers}
+                layerThumbs={layerThumbs}
+                textThumbs={textThumbs}
                 setActiveLayerId={(id) => {
                     setActiveLayerImmediate(id);
                     setActiveTextBoxImmediate(null);
                 }}
                 updateActiveLayer={updateActiveLayer}
                 deleteActiveLayer={deleteActiveLayer}
+                duplicateActiveLayer={duplicateActiveLayer}
+                mergeDown={mergeDown}
+                mergeVisible={mergeVisible}
+                flattenImage={flattenImage}
                 toggleLayerVisibility={toggleLayerVisibility}
                 moveLayer={moveLayer}
                 textBoxes={textBoxes}
@@ -2900,13 +3872,16 @@ function EditorLeftPanel(props) {
                         onChange={(event) => props.setTool(event.target.value)}
                         sx={editorSelectSx}
                     >
-                        <MenuItem value="move">Move Layer</MenuItem>
+                        <MenuItem value="move">Move / Transform Layer</MenuItem>
                         <MenuItem value="brush">Brush</MenuItem>
                         <MenuItem value="eraser">Eraser</MenuItem>
                         <MenuItem value="bucket">Fill Bucket</MenuItem>
+                        <MenuItem value="gradient">Gradient</MenuItem>
+                        <MenuItem value="eyedropper">Eyedropper</MenuItem>
                         <MenuItem value="wand">Magic Wand</MenuItem>
                         <MenuItem value="rectSelect">Rectangle Select</MenuItem>
                         <MenuItem value="lasso">Lasso Select</MenuItem>
+                        <MenuItem value="crop">Crop Tool</MenuItem>
                         <MenuItem value="textBox">Place Text Box</MenuItem>
                         <MenuItem value="text">Raster Text</MenuItem>
                         <MenuItem value="shape">Shape</MenuItem>
@@ -2926,22 +3901,147 @@ function EditorLeftPanel(props) {
 
                 <Divider sx={editorDividerSx} />
 
-                <PanelTitle icon={<TextFieldsRounded />} title="Live Text Boxes" />
+                <PanelTitle icon={<SelectAllRounded />} title="Selection Actions" />
 
-                <Typography sx={{ color: "#91a3b8", fontSize: 12.5, lineHeight: 1.55 }}>
-                    Click <strong>Add Text Box</strong> to place a typeable box. Drag the top handle
-                    to move it, type inside it, then style it from the right panel. Text boxes export
-                    with the final image.
-                </Typography>
+                <Stack direction="row" spacing={1}>
+                    <Button
+                        variant="outlined"
+                        startIcon={<ContentCopyRounded />}
+                        onClick={props.copySelection}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Copy
+                    </Button>
+
+                    <Button
+                        variant="outlined"
+                        startIcon={<ContentCutRounded />}
+                        onClick={props.cutSelection}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Cut
+                    </Button>
+                </Stack>
+
+                <Stack direction="row" spacing={1}>
+                    <Button
+                        variant="outlined"
+                        startIcon={<ContentPasteRounded />}
+                        onClick={props.pasteClipboardAsLayer}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Paste Layer
+                    </Button>
+
+                    <Button
+                        variant="outlined"
+                        startIcon={<DeleteRounded />}
+                        onClick={props.clearSelectedPixels}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Delete Pixels
+                    </Button>
+                </Stack>
+
+                <EditorSlider
+                    label="Selection Feather"
+                    value={props.selectionFeather}
+                    min={0}
+                    max={50}
+                    step={1}
+                    suffix="px"
+                    onChange={props.setSelectionFeather}
+                />
+
+                <Stack direction="row" spacing={1}>
+                    <Button
+                        variant="outlined"
+                        onClick={props.featherActiveSelection}
+                        disabled={!props.hasSelection}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Feather
+                    </Button>
+
+                    <Button
+                        variant="outlined"
+                        onClick={props.invertSelection}
+                        disabled={!props.hasSelection}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Invert
+                    </Button>
+                </Stack>
 
                 <Button
-                    variant="contained"
-                    startIcon={<TextFieldsRounded />}
-                    onClick={() => props.addTextBoxAtPoint()}
-                    sx={editorPrimaryButtonSx}
+                    variant="outlined"
+                    onClick={props.clearSelection}
+                    sx={editorSecondaryButtonSx}
                     fullWidth
                 >
-                    Add Movable Text Box
+                    {props.hasSelection ? "Deselect / Whole Layer Mode" : "No Selection Active"}
+                </Button>
+
+                <FormControlLabel
+                    control={
+                        <Switch
+                            checked={props.showMask}
+                            onChange={(event) => props.setShowMask(event.target.checked)}
+                        />
+                    }
+                    label={props.hasSelection ? "Show selection mask" : "No active selection"}
+                    sx={{
+                        color: "#cbd5e1",
+                        "& .MuiFormControlLabel-label": {
+                            fontSize: 13,
+                        },
+                    }}
+                />
+
+                <Divider sx={editorDividerSx} />
+
+                <PanelTitle icon={<CropRounded />} title="Crop" />
+
+                <Typography sx={{ color: "#91a3b8", fontSize: 12.5, lineHeight: 1.55 }}>
+                    Select Crop Tool and drag a rectangle. Apply Crop changes the document size and all raster layers.
+                </Typography>
+
+                <Stack direction="row" spacing={1}>
+                    <Button
+                        variant="outlined"
+                        onClick={props.applyCropRect}
+                        disabled={!props.cropRect}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Apply Crop
+                    </Button>
+
+                    <Button
+                        variant="outlined"
+                        onClick={props.cropToSelection}
+                        disabled={!props.hasSelection}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Crop Selection
+                    </Button>
+                </Stack>
+
+                <Button
+                    variant="outlined"
+                    onClick={props.clearCropRect}
+                    disabled={!props.cropRect}
+                    sx={editorSecondaryButtonSx}
+                    fullWidth
+                >
+                    Reset Crop
                 </Button>
 
                 <Divider sx={editorDividerSx} />
@@ -3016,7 +4116,7 @@ function EditorLeftPanel(props) {
 
                 <Divider sx={editorDividerSx} />
 
-                <PanelTitle icon={<PaletteRounded />} title="Fill / Selection" />
+                <PanelTitle icon={<FormatColorFillRounded />} title="Fill / Wand" />
 
                 <EditorSlider
                     label="Wand / Bucket Tolerance"
@@ -3027,15 +4127,9 @@ function EditorLeftPanel(props) {
                     onChange={props.setWandTolerance}
                 />
 
-                <Typography sx={{ color: "#91a3b8", fontSize: 12.5, lineHeight: 1.55 }}>
-                    Fill Bucket paints connected pixels matching the clicked color. If a selection
-                    exists, bucket fill stays inside that selection. Deselect to return filters and
-                    fills back to the whole active layer.
-                </Typography>
-
                 <Button
                     variant="contained"
-                    startIcon={<PaletteRounded />}
+                    startIcon={<FormatColorFillRounded />}
                     onClick={props.fillSelectionInActiveLayer}
                     sx={editorPrimaryButtonSx}
                     fullWidth
@@ -3043,35 +4137,55 @@ function EditorLeftPanel(props) {
                     {props.hasSelection ? "Fill Selection" : "Fill Whole Layer"}
                 </Button>
 
-                <Stack direction="row" spacing={1}>
-                    <Button
-                        variant="outlined"
-                        onClick={props.invertSelection}
-                        disabled={!props.hasSelection}
-                        sx={editorSecondaryButtonSx}
-                        fullWidth
-                    >
-                        Invert
-                    </Button>
+                <Divider sx={editorDividerSx} />
 
-                    <Button
-                        variant="outlined"
-                        onClick={props.clearSelection}
-                        sx={editorSecondaryButtonSx}
-                        fullWidth
+                <PanelTitle icon={<PaletteRounded />} title="Gradient Tool" />
+
+                <FormControl fullWidth size="small">
+                    <InputLabel sx={editorLabelSx}>Gradient Type</InputLabel>
+                    <Select
+                        value={props.gradientType}
+                        label="Gradient Type"
+                        onChange={(event) => props.setGradientType(event.target.value)}
+                        sx={editorSelectSx}
                     >
-                        {props.hasSelection ? "Deselect" : "No Selection"}
-                    </Button>
+                        <MenuItem value="linear">Linear</MenuItem>
+                        <MenuItem value="radial">Radial</MenuItem>
+                    </Select>
+                </FormControl>
+
+                <Stack direction="row" spacing={1}>
+                    <TextField
+                        label="Start"
+                        type="color"
+                        value={props.gradientStartColor}
+                        onChange={(event) => props.setGradientStartColor(event.target.value)}
+                        size="small"
+                        fullWidth
+                        InputLabelProps={{ shrink: true }}
+                        sx={editorTextFieldSx}
+                    />
+
+                    <TextField
+                        label="End"
+                        type="color"
+                        value={props.gradientEndColor}
+                        onChange={(event) => props.setGradientEndColor(event.target.value)}
+                        size="small"
+                        fullWidth
+                        InputLabelProps={{ shrink: true }}
+                        sx={editorTextFieldSx}
+                    />
                 </Stack>
 
                 <FormControlLabel
                     control={
                         <Switch
-                            checked={props.showMask}
-                            onChange={(event) => props.setShowMask(event.target.checked)}
+                            checked={props.gradientTransparent}
+                            onChange={(event) => props.setGradientTransparent(event.target.checked)}
                         />
                     }
-                    label={props.hasSelection ? "Show selection mask" : "No active selection"}
+                    label="Fade end color to transparent"
                     sx={{
                         color: "#cbd5e1",
                         "& .MuiFormControlLabel-label": {
@@ -3079,6 +4193,23 @@ function EditorLeftPanel(props) {
                         },
                     }}
                 />
+
+                <Divider sx={editorDividerSx} />
+
+                <PanelTitle icon={<ColorizeRounded />} title="Eyedropper" />
+
+                <FormControl fullWidth size="small">
+                    <InputLabel sx={editorLabelSx}>Sample Source</InputLabel>
+                    <Select
+                        value={props.eyedropperSource}
+                        label="Sample Source"
+                        onChange={(event) => props.setEyedropperSource(event.target.value)}
+                        sx={editorSelectSx}
+                    >
+                        <MenuItem value="composite">Full Composite</MenuItem>
+                        <MenuItem value="active">Active Layer Only</MenuItem>
+                    </Select>
+                </FormControl>
 
                 <Divider sx={editorDividerSx} />
 
@@ -3151,10 +4282,89 @@ function EditorLeftPanel(props) {
                         onChange={(event) => props.setShapeType(event.target.value)}
                         sx={editorSelectSx}
                     >
-                        <MenuItem value="rect">Rectangle</MenuItem>
-                        <MenuItem value="circle">Circle / Ellipse</MenuItem>
+                        {SHAPE_TYPES.map((shape) => (
+                            <MenuItem key={shape.value} value={shape.value}>
+                                {shape.label}
+                            </MenuItem>
+                        ))}
                     </Select>
                 </FormControl>
+
+                <Stack direction="row" spacing={1}>
+                    <FormControlLabel
+                        control={
+                            <Switch
+                                checked={props.shapeFillEnabled}
+                                onChange={(event) => props.setShapeFillEnabled(event.target.checked)}
+                            />
+                        }
+                        label="Fill"
+                        sx={{
+                            flex: 1,
+                            color: "#cbd5e1",
+                            "& .MuiFormControlLabel-label": {
+                                fontSize: 13,
+                            },
+                        }}
+                    />
+
+                    <FormControlLabel
+                        control={
+                            <Switch
+                                checked={props.shapeStrokeEnabled}
+                                onChange={(event) => props.setShapeStrokeEnabled(event.target.checked)}
+                            />
+                        }
+                        label="Stroke"
+                        sx={{
+                            flex: 1,
+                            color: "#cbd5e1",
+                            "& .MuiFormControlLabel-label": {
+                                fontSize: 13,
+                            },
+                        }}
+                    />
+                </Stack>
+
+                <TextField
+                    label="Stroke Color"
+                    type="color"
+                    value={props.shapeStrokeColor}
+                    onChange={(event) => props.setShapeStrokeColor(event.target.value)}
+                    size="small"
+                    fullWidth
+                    InputLabelProps={{ shrink: true }}
+                    sx={editorTextFieldSx}
+                />
+
+                <EditorSlider
+                    label="Stroke Width"
+                    value={props.shapeStrokeWidth}
+                    min={1}
+                    max={80}
+                    step={1}
+                    suffix="px"
+                    onChange={props.setShapeStrokeWidth}
+                />
+
+                <EditorSlider
+                    label="Rounded Radius"
+                    value={props.shapeRadius}
+                    min={0}
+                    max={120}
+                    step={1}
+                    suffix="px"
+                    onChange={props.setShapeRadius}
+                />
+
+                <EditorSlider
+                    label="Polygon Sides"
+                    value={props.polygonSides}
+                    min={3}
+                    max={12}
+                    step={1}
+                    onChange={props.setPolygonSides}
+                />
             </Stack>
         </Paper>
     );
@@ -3166,9 +4376,19 @@ function EditorCanvasCenter(props) {
             ? "grab"
             : props.tool === "text"
                 ? "text"
-                : ["brush", "eraser", "bucket", "wand", "rectSelect", "lasso", "shape", "textBox"].includes(
-                    props.tool
-                )
+                : [
+                    "brush",
+                    "eraser",
+                    "bucket",
+                    "wand",
+                    "rectSelect",
+                    "lasso",
+                    "shape",
+                    "textBox",
+                    "crop",
+                    "gradient",
+                    "eyedropper",
+                ].includes(props.tool)
                     ? "crosshair"
                     : "default";
 
@@ -3287,9 +4507,7 @@ function EditorCanvasCenter(props) {
                         max={2}
                         step={0.05}
                         onChange={(event, value) => props.setZoom(value)}
-                        sx={{
-                            color: "#52d7ff",
-                        }}
+                        sx={{ color: "#52d7ff" }}
                     />
 
                     <Typography sx={{ color: "#cbd5e1", fontSize: 12, width: 44 }}>
@@ -3348,6 +4566,19 @@ function EditorCanvasCenter(props) {
                         }}
                     />
 
+                    <RasterTransformOverlay
+                        doc={props.doc}
+                        zoom={props.zoom}
+                        tool={props.tool}
+                        activeLayer={props.activeLayer}
+                        activeLayerId={props.activeLayerId}
+                        setActiveLayerId={props.setActiveLayerId}
+                        updateLayerById={props.updateLayerById}
+                        pushHistory={props.pushHistory}
+                        setActiveTextBoxImmediate={props.setActiveTextBoxImmediate}
+                        bumpThumbnails={props.bumpThumbnails}
+                    />
+
                     <TextBoxOverlayLayer
                         textBoxes={props.textBoxes}
                         activeTextBoxId={props.activeTextBoxId}
@@ -3380,6 +4611,171 @@ function EditorCanvasCenter(props) {
     );
 }
 
+function RasterTransformOverlay({
+                                    doc,
+                                    zoom,
+                                    tool,
+                                    activeLayer,
+                                    activeLayerId,
+                                    setActiveLayerId,
+                                    updateLayerById,
+                                    pushHistory,
+                                    setActiveTextBoxImmediate,
+                                    bumpThumbnails,
+                                }) {
+    const dragRef = useRef(null);
+
+    if (!activeLayer) return null;
+
+    const transformBoxActive = tool === "move";
+
+    const startTransform = (event, mode) => {
+        if (!transformBoxActive || activeLayer.locked) return;
+
+        event.stopPropagation();
+        event.preventDefault();
+
+        pushHistory();
+        setActiveLayerId(activeLayerId);
+        setActiveTextBoxImmediate(null);
+
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+
+        dragRef.current = {
+            mode,
+            startClientX: event.clientX,
+            startClientY: event.clientY,
+            originalX: activeLayer.x,
+            originalY: activeLayer.y,
+            originalScale: activeLayer.scale,
+            originalRotation: activeLayer.rotation,
+        };
+    };
+
+    const moveTransform = (event) => {
+        if (!dragRef.current) return;
+
+        event.stopPropagation();
+        event.preventDefault();
+
+        const drag = dragRef.current;
+        const dx = (event.clientX - drag.startClientX) / zoom;
+        const dy = (event.clientY - drag.startClientY) / zoom;
+
+        if (drag.mode === "move") {
+            updateLayerById(activeLayerId, {
+                x: drag.originalX + dx,
+                y: drag.originalY + dy,
+            });
+        }
+
+        if (drag.mode === "scale") {
+            const delta = (dx + dy) / Math.max(160, Math.min(doc.width, doc.height));
+            const nextScale = clamp(drag.originalScale + delta, 0.05, 4);
+
+            updateLayerById(activeLayerId, {
+                scale: nextScale,
+            });
+        }
+
+        if (drag.mode === "rotate") {
+            const delta = dx * 0.7 + dy * 0.7;
+
+            updateLayerById(activeLayerId, {
+                rotation: drag.originalRotation + delta,
+            });
+        }
+    };
+
+    const endTransform = (event) => {
+        if (!dragRef.current) return;
+
+        event.stopPropagation();
+        dragRef.current = null;
+        bumpThumbnails();
+    };
+
+    return (
+        <Box
+            onPointerDown={(event) => startTransform(event, "move")}
+            onPointerMove={moveTransform}
+            onPointerUp={endTransform}
+            onPointerCancel={endTransform}
+            sx={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                width: doc.width * zoom,
+                height: doc.height * zoom,
+                transform: `translate(${activeLayer.x * zoom}px, ${activeLayer.y * zoom}px) rotate(${activeLayer.rotation}deg) scale(${activeLayer.scale})`,
+                transformOrigin: "center center",
+                border: transformBoxActive
+                    ? "2px dashed rgba(82,215,255,0.85)"
+                    : "1px dashed rgba(82,215,255,0.25)",
+                boxShadow: transformBoxActive ? "0 0 0 2px rgba(82,215,255,0.12)" : "none",
+                pointerEvents: transformBoxActive ? "auto" : "none",
+                cursor: activeLayer.locked ? "not-allowed" : "move",
+                zIndex: 2,
+            }}
+        >
+            {transformBoxActive && !activeLayer.locked && (
+                <>
+                    <TransformHandle
+                        left="50%"
+                        top="-42px"
+                        cursor="grab"
+                        onPointerDown={(event) => startTransform(event, "rotate")}
+                        label="↻"
+                    />
+
+                    {[
+                        ["0%", "0%"],
+                        ["100%", "0%"],
+                        ["0%", "100%"],
+                        ["100%", "100%"],
+                    ].map(([left, top]) => (
+                        <TransformHandle
+                            key={`${left}-${top}`}
+                            left={left}
+                            top={top}
+                            cursor="nwse-resize"
+                            onPointerDown={(event) => startTransform(event, "scale")}
+                        />
+                    ))}
+                </>
+            )}
+        </Box>
+    );
+}
+
+function TransformHandle({ left, top, cursor, onPointerDown, label = "" }) {
+    return (
+        <Box
+            onPointerDown={onPointerDown}
+            sx={{
+                position: "absolute",
+                left,
+                top,
+                width: 18,
+                height: 18,
+                transform: "translate(-50%, -50%)",
+                borderRadius: "50%",
+                display: "grid",
+                placeItems: "center",
+                color: "#06101a",
+                fontSize: 11,
+                fontWeight: 950,
+                background: "linear-gradient(135deg, #52d7ff, #7c5cff)",
+                border: "2px solid rgba(255,255,255,0.95)",
+                cursor,
+                userSelect: "none",
+            }}
+        >
+            {label}
+        </Box>
+    );
+}
+
 function TextBoxOverlayLayer({
                                  textBoxes,
                                  activeTextBoxId,
@@ -3394,6 +4790,7 @@ function TextBoxOverlayLayer({
                 position: "absolute",
                 inset: 0,
                 pointerEvents: "none",
+                zIndex: 4,
             }}
         >
             {textBoxes.map((box) => (
@@ -3423,7 +4820,7 @@ function EditableTextBox({
 
     if (!box.visible) return null;
 
-    const startDrag = (event) => {
+    const startBoxDrag = (event, mode, handle = null) => {
         if (box.locked) return;
 
         event.stopPropagation();
@@ -3435,34 +4832,108 @@ function EditableTextBox({
         event.currentTarget.setPointerCapture?.(event.pointerId);
 
         dragRef.current = {
-            pointerId: event.pointerId,
+            mode,
+            handle,
             startClientX: event.clientX,
             startClientY: event.clientY,
             originalX: box.x,
             originalY: box.y,
+            originalWidth: box.width,
+            originalHeight: box.height,
+            originalRotation: box.rotation || 0,
         };
     };
 
-    const moveDrag = (event) => {
+    const moveBoxDrag = (event) => {
         if (!dragRef.current) return;
 
         event.stopPropagation();
         event.preventDefault();
 
-        const dx = (event.clientX - dragRef.current.startClientX) / zoom;
-        const dy = (event.clientY - dragRef.current.startClientY) / zoom;
+        const drag = dragRef.current;
+        const dx = (event.clientX - drag.startClientX) / zoom;
+        const dy = (event.clientY - drag.startClientY) / zoom;
 
-        updateTextBox(box.id, {
-            x: dragRef.current.originalX + dx,
-            y: dragRef.current.originalY + dy,
-        });
+        if (drag.mode === "move") {
+            updateTextBox(box.id, {
+                x: drag.originalX + dx,
+                y: drag.originalY + dy,
+            });
+        }
+
+        if (drag.mode === "resize") {
+            let nextX = drag.originalX;
+            let nextY = drag.originalY;
+            let nextWidth = drag.originalWidth;
+            let nextHeight = drag.originalHeight;
+
+            if (drag.handle.includes("e")) {
+                nextWidth = drag.originalWidth + dx;
+            }
+
+            if (drag.handle.includes("s")) {
+                nextHeight = drag.originalHeight + dy;
+            }
+
+            if (drag.handle.includes("w")) {
+                nextX = drag.originalX + dx;
+                nextWidth = drag.originalWidth - dx;
+            }
+
+            if (drag.handle.includes("n")) {
+                nextY = drag.originalY + dy;
+                nextHeight = drag.originalHeight - dy;
+            }
+
+            nextWidth = Math.max(50, nextWidth);
+            nextHeight = Math.max(34, nextHeight);
+
+            updateTextBox(box.id, {
+                x: nextX,
+                y: nextY,
+                width: nextWidth,
+                height: nextHeight,
+            });
+        }
+
+        if (drag.mode === "rotate") {
+            const delta = dx * 0.8 + dy * 0.8;
+
+            updateTextBox(box.id, {
+                rotation: drag.originalRotation + delta,
+            });
+        }
     };
 
-    const endDrag = (event) => {
+    const endBoxDrag = (event) => {
         if (!dragRef.current) return;
 
         event.stopPropagation();
         dragRef.current = null;
+    };
+
+    const handleSize = Math.max(9, 12 * zoom);
+    const topBarHeight = Math.max(22, 26 * zoom);
+    const scaledPadding = Math.max(6, (box.padding || 14) * zoom);
+    const scaledFontSize = Math.max(8, (box.fontSize || 48) * zoom);
+
+    const cleanTextSx = {
+        width: "100%",
+        height: "100%",
+        boxSizing: "border-box",
+        p: `${scaledPadding}px`,
+        color: box.color || "#ffffff",
+        backgroundColor: "transparent",
+        fontSize: scaledFontSize,
+        lineHeight: box.lineHeight || 1.18,
+        fontFamily: box.fontFamily || "Arial",
+        fontWeight: box.fontWeight || "800",
+        textAlign: box.align || "left",
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+        overflow: "hidden",
+        userSelect: "none",
+        pointerEvents: "none",
     };
 
     return (
@@ -3471,6 +4942,9 @@ function EditableTextBox({
                 event.stopPropagation();
                 setActiveTextBoxId(box.id);
             }}
+            onPointerMove={moveBoxDrag}
+            onPointerUp={endBoxDrag}
+            onPointerCancel={endBoxDrag}
             sx={{
                 position: "absolute",
                 left: box.x * zoom,
@@ -3480,77 +4954,197 @@ function EditableTextBox({
                 transform: `rotate(${box.rotation || 0}deg)`,
                 transformOrigin: "top left",
                 pointerEvents: "auto",
-                border: active
-                    ? "2px solid rgba(82,215,255,0.95)"
-                    : `${Math.max(1, box.borderWidth || 1)}px solid ${rgba(
-                        box.borderColor || "#52d7ff",
-                        box.borderOpacity || 0.45
-                    )}`,
-                backgroundColor: rgba(box.backgroundColor || "#000000", box.backgroundOpacity || 0),
+
+                // Important:
+                // Unselected text boxes now show only the text.
+                border: active ? "2px solid rgba(82,215,255,0.95)" : "2px solid transparent",
+                backgroundColor: active
+                    ? rgba(box.backgroundColor || "#000000", box.backgroundOpacity || 0)
+                    : "transparent",
                 boxShadow: active ? "0 0 0 3px rgba(82,215,255,0.18)" : "none",
-                overflow: "hidden",
+
+                overflow: "visible",
+                zIndex: active ? 8 : 5,
+                cursor: active ? "default" : "pointer",
             }}
         >
-            <Box
-                onPointerDown={startDrag}
-                onPointerMove={moveDrag}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
-                sx={{
-                    height: Math.max(22, 26 * zoom),
-                    px: 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    cursor: box.locked ? "not-allowed" : "grab",
-                    color: "#06101a",
-                    background: active
-                        ? "linear-gradient(135deg, #52d7ff, #7c5cff)"
-                        : "rgba(82,215,255,0.65)",
-                    fontSize: Math.max(10, 11 * zoom),
-                    fontWeight: 950,
-                    userSelect: "none",
-                }}
-            >
-                <span>{box.locked ? "Locked Text Box" : "Drag Text Box"}</span>
-                <span>{active ? "Active" : ""}</span>
-            </Box>
+            {active && (
+                <Box
+                    onPointerDown={(event) => startBoxDrag(event, "move")}
+                    sx={{
+                        height: topBarHeight,
+                        px: 1,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        cursor: box.locked ? "not-allowed" : "grab",
+                        color: "#06101a",
+                        background: box.locked
+                            ? "rgba(148,163,184,0.9)"
+                            : "linear-gradient(135deg, #52d7ff, #7c5cff)",
+                        fontSize: Math.max(10, 11 * zoom),
+                        fontWeight: 950,
+                        userSelect: "none",
+                        overflow: "hidden",
+                    }}
+                >
+                    <span>{box.locked ? "Locked Text Box" : "Drag Text Box"}</span>
+                    <span>Selected</span>
+                </Box>
+            )}
 
-            <textarea
-                value={box.text}
-                disabled={box.locked}
-                onFocus={() => {
-                    pushHistory();
-                    setActiveTextBoxId(box.id);
-                }}
-                onPointerDown={(event) => {
-                    event.stopPropagation();
-                    setActiveTextBoxId(box.id);
-                }}
-                onChange={(event) =>
-                    updateTextBox(box.id, {
-                        text: event.target.value,
-                    })
-                }
-                style={{
-                    width: "100%",
-                    height: `calc(100% - ${Math.max(22, 26 * zoom)}px)`,
-                    resize: "none",
-                    border: 0,
-                    outline: 0,
-                    boxSizing: "border-box",
-                    padding: Math.max(6, (box.padding || 14) * zoom),
-                    color: box.color || "#ffffff",
-                    background: "transparent",
-                    fontSize: Math.max(8, (box.fontSize || 48) * zoom),
-                    lineHeight: box.lineHeight || 1.18,
-                    fontFamily: box.fontFamily || "Arial",
-                    fontWeight: box.fontWeight || "800",
-                    textAlign: box.align || "left",
-                    overflow: "hidden",
-                }}
-            />
+            {active ? (
+                <textarea
+                    value={box.text}
+                    disabled={box.locked}
+                    onFocus={() => {
+                        pushHistory();
+                        setActiveTextBoxId(box.id);
+                    }}
+                    onPointerDown={(event) => {
+                        event.stopPropagation();
+                        setActiveTextBoxId(box.id);
+                    }}
+                    onChange={(event) =>
+                        updateTextBox(box.id, {
+                            text: event.target.value,
+                        })
+                    }
+                    style={{
+                        width: "100%",
+                        height: `calc(100% - ${topBarHeight}px)`,
+                        resize: "none",
+                        border: 0,
+                        outline: 0,
+                        boxSizing: "border-box",
+                        padding: scaledPadding,
+                        color: box.color || "#ffffff",
+                        background: "transparent",
+                        fontSize: scaledFontSize,
+                        lineHeight: box.lineHeight || 1.18,
+                        fontFamily: box.fontFamily || "Arial",
+                        fontWeight: box.fontWeight || "800",
+                        textAlign: box.align || "left",
+                        overflow: "hidden",
+                    }}
+                />
+            ) : (
+                <Box sx={cleanTextSx}>{box.text || ""}</Box>
+            )}
+
+            {active && !box.locked && (
+                <>
+                    <TextResizeHandle
+                        left="0%"
+                        top="0%"
+                        size={handleSize}
+                        cursor="nwse-resize"
+                        onPointerDown={(event) => startBoxDrag(event, "resize", "nw")}
+                    />
+
+                    <TextResizeHandle
+                        left="50%"
+                        top="0%"
+                        size={handleSize}
+                        cursor="ns-resize"
+                        onPointerDown={(event) => startBoxDrag(event, "resize", "n")}
+                    />
+
+                    <TextResizeHandle
+                        left="100%"
+                        top="0%"
+                        size={handleSize}
+                        cursor="nesw-resize"
+                        onPointerDown={(event) => startBoxDrag(event, "resize", "ne")}
+                    />
+
+                    <TextResizeHandle
+                        left="100%"
+                        top="50%"
+                        size={handleSize}
+                        cursor="ew-resize"
+                        onPointerDown={(event) => startBoxDrag(event, "resize", "e")}
+                    />
+
+                    <TextResizeHandle
+                        left="100%"
+                        top="100%"
+                        size={handleSize}
+                        cursor="nwse-resize"
+                        onPointerDown={(event) => startBoxDrag(event, "resize", "se")}
+                    />
+
+                    <TextResizeHandle
+                        left="50%"
+                        top="100%"
+                        size={handleSize}
+                        cursor="ns-resize"
+                        onPointerDown={(event) => startBoxDrag(event, "resize", "s")}
+                    />
+
+                    <TextResizeHandle
+                        left="0%"
+                        top="100%"
+                        size={handleSize}
+                        cursor="nesw-resize"
+                        onPointerDown={(event) => startBoxDrag(event, "resize", "sw")}
+                    />
+
+                    <TextResizeHandle
+                        left="0%"
+                        top="50%"
+                        size={handleSize}
+                        cursor="ew-resize"
+                        onPointerDown={(event) => startBoxDrag(event, "resize", "w")}
+                    />
+
+                    <Box
+                        onPointerDown={(event) => startBoxDrag(event, "rotate")}
+                        sx={{
+                            position: "absolute",
+                            left: "50%",
+                            top: -38,
+                            width: 22,
+                            height: 22,
+                            transform: "translate(-50%, -50%)",
+                            display: "grid",
+                            placeItems: "center",
+                            borderRadius: "50%",
+                            color: "#06101a",
+                            background: "linear-gradient(135deg, #52d7ff, #7c5cff)",
+                            border: "2px solid rgba(255,255,255,0.95)",
+                            fontSize: 12,
+                            fontWeight: 950,
+                            cursor: "grab",
+                            userSelect: "none",
+                        }}
+                    >
+                        ↻
+                    </Box>
+                </>
+            )}
         </Box>
+    );
+}
+
+function TextResizeHandle({ left, top, size, cursor = "nwse-resize", onPointerDown }) {
+    return (
+        <Box
+            onPointerDown={onPointerDown}
+            sx={{
+                position: "absolute",
+                left,
+                top,
+                width: size,
+                height: size,
+                transform: "translate(-50%, -50%)",
+                borderRadius: "50%",
+                backgroundColor: "#52d7ff",
+                border: "2px solid #ffffff",
+                cursor,
+                zIndex: 10,
+            }}
+        />
     );
 }
 
@@ -3594,6 +5188,8 @@ function EditorRightPanel(props) {
                                 }}
                             >
                                 <Stack direction="row" spacing={1} alignItems="center">
+                                    <LayerThumb src={props.textThumbs[box.id]} />
+
                                     <IconButton
                                         size="small"
                                         onClick={(event) => {
@@ -3634,20 +5230,7 @@ function EditorRightPanel(props) {
                     })}
 
                     {props.textBoxes.length === 0 && (
-                        <Paper
-                            elevation={0}
-                            sx={{
-                                p: 2,
-                                borderRadius: 2.5,
-                                color: "#91a3b8",
-                                backgroundColor: "rgba(255,255,255,0.045)",
-                                border: "1px solid rgba(255,255,255,0.1)",
-                            }}
-                        >
-                            <Typography sx={{ fontSize: 13, lineHeight: 1.6 }}>
-                                Click Add Text Box to place editable text over the image.
-                            </Typography>
-                        </Paper>
+                        <EmptyPanelText text="Click Add Text Box to place editable text over the image." />
                     )}
                 </Stack>
 
@@ -4002,6 +5585,49 @@ function EditorRightPanel(props) {
                     </Tooltip>
                 </Stack>
 
+                <Stack direction="row" spacing={1}>
+                    <Button
+                        variant="outlined"
+                        onClick={props.duplicateActiveLayer}
+                        disabled={!props.activeLayer}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Duplicate
+                    </Button>
+
+                    <Button
+                        variant="outlined"
+                        onClick={props.mergeDown}
+                        disabled={!props.activeLayer}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Merge Down
+                    </Button>
+                </Stack>
+
+                <Stack direction="row" spacing={1}>
+                    <Button
+                        variant="outlined"
+                        startIcon={<FlipToFrontRounded />}
+                        onClick={props.mergeVisible}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Merge Visible
+                    </Button>
+
+                    <Button
+                        variant="outlined"
+                        onClick={props.flattenImage}
+                        sx={editorSecondaryButtonSx}
+                        fullWidth
+                    >
+                        Flatten
+                    </Button>
+                </Stack>
+
                 <Stack spacing={1.1}>
                     {[...props.layers].reverse().map((layer, reversedIndex) => {
                         const realIndex = props.layers.length - 1 - reversedIndex;
@@ -4026,6 +5652,8 @@ function EditorRightPanel(props) {
                                 }}
                             >
                                 <Stack direction="row" spacing={1} alignItems="center">
+                                    <LayerThumb src={props.layerThumbs[layer.id]} />
+
                                     <IconButton
                                         size="small"
                                         onClick={(event) => {
@@ -4095,20 +5723,7 @@ function EditorRightPanel(props) {
                     })}
 
                     {props.layers.length === 0 && (
-                        <Paper
-                            elevation={0}
-                            sx={{
-                                p: 2,
-                                borderRadius: 2.5,
-                                color: "#91a3b8",
-                                backgroundColor: "rgba(255,255,255,0.045)",
-                                border: "1px solid rgba(255,255,255,0.1)",
-                            }}
-                        >
-                            <Typography sx={{ fontSize: 13, lineHeight: 1.6 }}>
-                                Upload an image or add a paint layer to begin.
-                            </Typography>
-                        </Paper>
+                        <EmptyPanelText text="Upload an image or add a paint layer to begin." />
                     )}
                 </Stack>
 
@@ -4252,6 +5867,57 @@ function EditorRightPanel(props) {
     );
 }
 
+function LayerThumb({ src }) {
+    if (!src) {
+        return (
+            <Box
+                sx={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 1.5,
+                    flexShrink: 0,
+                    backgroundColor: "rgba(255,255,255,0.07)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                }}
+            />
+        );
+    }
+
+    return (
+        <Box
+            component="img"
+            src={src}
+            alt=""
+            sx={{
+                width: 42,
+                height: 42,
+                borderRadius: 1.5,
+                objectFit: "cover",
+                flexShrink: 0,
+                backgroundColor: "rgba(255,255,255,0.07)",
+                border: "1px solid rgba(255,255,255,0.12)",
+            }}
+        />
+    );
+}
+
+function EmptyPanelText({ text }) {
+    return (
+        <Paper
+            elevation={0}
+            sx={{
+                p: 2,
+                borderRadius: 2.5,
+                color: "#91a3b8",
+                backgroundColor: "rgba(255,255,255,0.045)",
+                border: "1px solid rgba(255,255,255,0.1)",
+            }}
+        >
+            <Typography sx={{ fontSize: 13, lineHeight: 1.6 }}>{text}</Typography>
+        </Paper>
+    );
+}
+
 function PanelTitle({ icon, title }) {
     return (
         <Stack direction="row" spacing={1} alignItems="center">
@@ -4287,7 +5953,9 @@ function EditorSlider({
                           suffix = "",
                           percent = false,
                       }) {
-    const displayValue = percent ? `${Math.round(value * 100)}%` : `${Number(value).toFixed(step < 1 ? 2 : 0)}${suffix}`;
+    const displayValue = percent
+        ? `${Math.round(value * 100)}%`
+        : `${Number(value).toFixed(step < 1 ? 2 : 0)}${suffix}`;
 
     return (
         <Box>

@@ -4,13 +4,20 @@ import {
     ArrowBackRounded,
     AutoFixHighRounded,
     BrushRounded,
+    ColorizeRounded,
+    ContentCopyRounded,
+    CropRounded,
     FileDownloadRounded,
+    FlipToFrontRounded,
+    FormatColorFillRounded,
+    GradientRounded,
     ImageRounded,
     LayersRounded,
     PaletteRounded,
     SaveRounded,
     SelectAllRounded,
     TextFieldsRounded,
+    TuneRounded,
 } from "@mui/icons-material";
 import {
     Box,
@@ -40,7 +47,7 @@ export default function Image() {
                 overflow: "hidden",
                 color: "common.white",
                 background:
-                    "radial-gradient(circle at top left, rgba(82,215,255,0.13), transparent 32%), radial-gradient(circle at top right, rgba(124, 92, 255, 0.12), transparent 30%), #07090f",
+                    "radial-gradient(circle at top left, rgba(82,215,255,0.13), transparent 32%), radial-gradient(circle at top right, rgba(124, 92, 255, 0.12), transparent 30%), radial-gradient(circle at bottom, rgba(255,51,120,0.08), transparent 40%), #07090f",
             }}
         >
             <Paper
@@ -56,7 +63,13 @@ export default function Image() {
                     backdropFilter: "blur(16px)",
                 }}
             >
-                <Container maxWidth={false} sx={{ px: { xs: 2, md: 3.5 }, py: 2.25 }}>
+                <Container
+                    maxWidth={false}
+                    sx={{
+                        px: { xs: 2, md: 3.5 },
+                        py: 2.25,
+                    }}
+                >
                     <Stack
                         direction={{ xs: "column", md: "row" }}
                         spacing={2}
@@ -121,15 +134,16 @@ export default function Image() {
                                     <Typography
                                         sx={{
                                             mt: 0.9,
-                                            maxWidth: 900,
+                                            maxWidth: 980,
                                             color: "#aeb7c8",
                                             lineHeight: 1.6,
                                             fontSize: 15,
                                         }}
                                     >
                                         Upload an image, paint with shaped brushes, use fill bucket,
-                                        make selections, deselect to edit the whole layer again, and
-                                        add movable typeable text boxes before exporting.
+                                        make selections, feather masks, crop, add gradients, sample
+                                        colors, duplicate and merge layers, place movable text boxes,
+                                        resize them with handles, and export as PNG, JPEG, or WebP.
                                     </Typography>
                                 </Box>
                             </Stack>
@@ -141,14 +155,22 @@ export default function Image() {
                             flexWrap="wrap"
                             useFlexGap
                             justifyContent={{ xs: "flex-start", md: "flex-end" }}
-                            sx={{ maxWidth: { xs: "100%", md: 760 } }}
+                            sx={{
+                                maxWidth: { xs: "100%", md: 920 },
+                            }}
                         >
                             <HeaderChip icon={<LayersRounded />} label="Layers" />
                             <HeaderChip icon={<BrushRounded />} label="Shape Brushes" />
-                            <HeaderChip icon={<PaletteRounded />} label="Fill Bucket" />
-                            <HeaderChip icon={<AutoFixHighRounded />} label="Wand" />
-                            <HeaderChip icon={<SelectAllRounded />} label="Deselect / Whole Layer" />
-                            <HeaderChip icon={<TextFieldsRounded />} label="Movable Text Boxes" />
+                            <HeaderChip icon={<FormatColorFillRounded />} label="Fill Bucket" />
+                            <HeaderChip icon={<PaletteRounded />} label="Gradients" />
+                            <HeaderChip icon={<ColorizeRounded />} label="Eyedropper" />
+                            <HeaderChip icon={<AutoFixHighRounded />} label="Magic Wand" />
+                            <HeaderChip icon={<SelectAllRounded />} label="Selections" />
+                            <HeaderChip icon={<ContentCopyRounded />} label="Copy / Cut / Paste" />
+                            <HeaderChip icon={<CropRounded />} label="Crop" />
+                            <HeaderChip icon={<TextFieldsRounded />} label="Resizable Text Boxes" />
+                            <HeaderChip icon={<FlipToFrontRounded />} label="Merge / Flatten" />
+                            <HeaderChip icon={<TuneRounded />} label="Filters" />
                             <HeaderChip icon={<FileDownloadRounded />} label="PNG / JPEG / WebP" />
                             <HeaderChip icon={<SaveRounded />} label="Project JSON" />
                         </Stack>
@@ -168,11 +190,14 @@ export default function Image() {
                     }}
                 >
                     <Typography sx={{ fontSize: 13.5, lineHeight: 1.55 }}>
-                        On smaller screens, the editor works best in landscape mode or on desktop
-                        because it has left tools, a canvas workspace, and a right layer panel.
+                        On smaller screens, this editor works best in landscape mode or on desktop
+                        because it has a left tools panel, a large canvas workspace, and a right
+                        layers/text panel.
                     </Typography>
                 </Box>
             )}
+
+            <EditorFeatureBar />
 
             <Box
                 component="section"
@@ -211,5 +236,97 @@ function HeaderChip({ icon, label }) {
                 },
             }}
         />
+    );
+}
+
+function EditorFeatureBar() {
+    const items = [
+        {
+            icon: <SelectAllRounded />,
+            label: "Select pixels, feather masks, then fill, filter, cut, copy, paste, or delete.",
+        },
+        {
+            icon: <CropRounded />,
+            label: "Use Crop Tool to drag a crop box or crop directly to your active selection.",
+        },
+        {
+            icon: <TextFieldsRounded />,
+            label: "Text boxes now have direct move, resize, and rotation handles on the canvas.",
+        },
+        {
+            icon: <LayersRounded />,
+            label: "Raster layers support thumbnails, duplicate, merge down, merge visible, and flatten.",
+        },
+    ];
+
+    return (
+        <Paper
+            elevation={0}
+            square
+            sx={{
+                flexShrink: 0,
+                px: { xs: 1.5, md: 2.25 },
+                py: 1.1,
+                display: { xs: "none", lg: "block" },
+                borderBottom: "1px solid rgba(255,255,255,0.08)",
+                backgroundColor: "rgba(9, 12, 18, 0.92)",
+                color: "common.white",
+            }}
+        >
+            <Stack
+                direction="row"
+                spacing={1}
+                flexWrap="wrap"
+                useFlexGap
+                alignItems="center"
+            >
+                {items.map((item) => (
+                    <Box
+                        key={item.label}
+                        sx={{
+                            flex: "1 1 260px",
+                            minHeight: 42,
+                            px: 1.5,
+                            py: 0.9,
+                            borderRadius: 2,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1,
+                            color: "#cbd5e1",
+                            backgroundColor: "rgba(255,255,255,0.045)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                        }}
+                    >
+                        <Box
+                            sx={{
+                                width: 28,
+                                height: 28,
+                                flexShrink: 0,
+                                borderRadius: 1.35,
+                                display: "grid",
+                                placeItems: "center",
+                                color: "#52d7ff",
+                                backgroundColor: "rgba(82,215,255,0.1)",
+                                "& svg": {
+                                    fontSize: 17,
+                                },
+                            }}
+                        >
+                            {item.icon}
+                        </Box>
+
+                        <Typography
+                            sx={{
+                                fontSize: 12.4,
+                                lineHeight: 1.35,
+                                fontWeight: 800,
+                            }}
+                        >
+                            {item.label}
+                        </Typography>
+                    </Box>
+                ))}
+            </Stack>
+        </Paper>
     );
 }
