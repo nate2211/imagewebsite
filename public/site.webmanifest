@@ -1,0 +1,18 @@
+{
+  "short_name": "ImageMaster",
+  "name": "ImageMaster Lab",
+  "description": "A browser-based image editor built with React, Material UI, and canvas tools.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#07090f",
+  "theme_color": "#07090f",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
