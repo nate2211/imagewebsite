@@ -10,7 +10,6 @@ import {
     FileDownloadRounded,
     FlipToFrontRounded,
     FormatColorFillRounded,
-    GradientRounded,
     ImageRounded,
     LayersRounded,
     PaletteRounded,
@@ -31,6 +30,7 @@ import {
     useTheme,
 } from "@mui/material";
 import { CanvasImageEditor } from "../components/components";
+import Seo from "../components/seo";
 
 export default function Image() {
     const theme = useTheme();
@@ -50,6 +50,12 @@ export default function Image() {
                     "radial-gradient(circle at top left, rgba(82,215,255,0.13), transparent 32%), radial-gradient(circle at top right, rgba(124, 92, 255, 0.12), transparent 30%), radial-gradient(circle at bottom, rgba(255,51,120,0.08), transparent 40%), #07090f",
             }}
         >
+            <Seo
+                title="Canvas Image Editor"
+                path="/image"
+                description="Use ImageMaster Lab's canvas image editor to upload photos, paint with shaped brushes, add movable text boxes, create selections, apply filters, manage layers, crop, and export PNG, JPEG, or WebP files."
+                keywords="canvas image editor, React canvas editor, online photo editor, image layers, image filters, movable text boxes, crop tool, fill bucket, image selection tool, export PNG JPEG WebP"
+            />
             <Paper
                 component="header"
                 elevation={0}
@@ -273,6 +279,7 @@ function EditorFeatureBar() {
                 color: "common.white",
             }}
         >
+
             <Stack
                 direction="row"
                 spacing={1}

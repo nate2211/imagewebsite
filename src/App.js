@@ -1,6 +1,7 @@
 import React from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { CssBaseline, ThemeProvider, createTheme } from "@mui/material";
+import { HelmetProvider } from "react-helmet-async";
 import Home from "./pages/home";
 import Image from "./pages/image";
 
@@ -42,18 +43,18 @@ const theme = createTheme({
 
 export default function App() {
   return (
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
+      <HelmetProvider>
+        <ThemeProvider theme={theme}>
+          <CssBaseline />
 
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/image" element={<Image />} />
-
-            {/* Optional fallback route */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </ThemeProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/image" element={<Image />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </ThemeProvider>
+      </HelmetProvider>
   );
 }
