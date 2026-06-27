@@ -4,15 +4,99 @@
 >
     <url>
         <loc>https://imagemasterlab.com/</loc>
-        <lastmod>2026-06-23</lastmod>
+        <lastmod>2026-06-27</lastmod>
         <changefreq>weekly</changefreq>
         <priority>1.00</priority>
     </url>
 
     <url>
         <loc>https://imagemasterlab.com/image</loc>
-        <lastmod>2026-06-23</lastmod>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.95</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/additional-pages</loc>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.92</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/crop-image</loc>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.94</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/resize-image</loc>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.94</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/compress-image</loc>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.94</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/background-remover</loc>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.94</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/photo-filters</loc>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.93</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/add-text-to-image</loc>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.93</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/watermark-image</loc>
+        <lastmod>2026-06-27</lastmod>
         <changefreq>weekly</changefreq>
         <priority>0.90</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/meme-maker</loc>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.90</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/convert-to-png</loc>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.91</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/convert-to-jpg</loc>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.91</priority>
+    </url>
+
+    <url>
+        <loc>https://imagemasterlab.com/convert-to-webp</loc>
+        <lastmod>2026-06-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.91</priority>
     </url>
 </urlset>
