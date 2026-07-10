@@ -359,10 +359,6 @@ function getArchiveDetailsUrl(identifier) {
     return `https://archive.org/details/${encodeURIComponent(identifier)}`;
 }
 
-function getProxiedArchiveDetailsUrl(identifier) {
-    return buildExternalArchiveProxyUrl(getArchiveDetailsUrl(identifier));
-}
-
 function getArchiveServiceImageUrl(identifier) {
     return `https://archive.org/services/img/${encodeURIComponent(identifier)}`;
 }
@@ -479,7 +475,6 @@ function normalizeArchiveDoc(doc, metadata, includeThumbnails) {
         sourceUrl: buildExternalArchiveProxyUrl(originalSourceUrl),
         originalSourceUrl,
         detailsUrl: getArchiveDetailsUrl(identifier),
-        proxiedDetailsUrl: getProxiedArchiveDetailsUrl(identifier),
         allImageCount: files.filter((file) => isImageFile(file, true)).length,
     };
 }
@@ -1004,7 +999,7 @@ export default function ArchiveImages() {
                                                     <Tooltip title="Open Archive details">
                                                         <IconButton
                                                             component="a"
-                                                            href={item.proxiedDetailsUrl}
+                                                            href={item.detailsUrl}
                                                             target="_blank"
                                                             rel="noreferrer"
                                                             sx={{ color: "#9ee8ff" }}
@@ -1096,7 +1091,7 @@ export default function ArchiveImages() {
 
                                 <Stack direction="row" spacing={1}>
                                     <Button
-                                        href={selectedImage.proxiedDetailsUrl}
+                                        href={selectedImage.detailsUrl}
                                         target="_blank"
                                         rel="noreferrer"
                                         startIcon={<OpenInNewRounded />}
